@@ -2,4 +2,4 @@
 builder = "railpack"
 
 [deploy]
-startCommand = "frankenphp run --config /etc/caddy/Caddyfile"
+startCommand = "php -S 0.0.0.0:$PORT"
