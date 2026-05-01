@@ -46,9 +46,9 @@ if (!empty($errors)) {
 // Try to fetch the human-readable name from the services table.
 // Falls back to "Service #N" if the table doesn't exist yet.
 $serviceName = "Service #{$service_id}";
-$svcRow      = null;   // ensure always defined
+$svcRow      = null;
 try {
-    $svcStmt = $pdo->prepare("SELECT TOP 1 service_name AS name, price, price_from FROM dbo.services WHERE id = ?");
+    $svcStmt = $pdo->prepare("SELECT service_name AS name, price, price_from FROM services WHERE id = ? LIMIT 1");
     $svcStmt->execute([$service_id]);
     $svcRow = $svcStmt->fetch();
     if ($svcRow) {
@@ -62,7 +62,7 @@ try {
 function generateRef(PDO $pdo): string {
     do {
         $ref = 'SM-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(2)));
-        $chk = $pdo->prepare("SELECT id FROM dbo.orders WHERE order_ref = ?");
+        $chk = $pdo->prepare("SELECT id FROM orders WHERE order_ref = ?");
         $chk->execute([$ref]);
     } while ($chk->fetch());
     return $ref;
@@ -71,7 +71,7 @@ function generateRef(PDO $pdo): string {
 $order_ref = generateRef($pdo);
 
 // ── Insert order ────────────────────────────────────────
-$sql = "INSERT INTO dbo.orders 
+$sql = "INSERT INTO orders 
         (order_ref, customer_name, email, phone, service_id, shoe_type, drop_date, collection, notes, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 $status = in_array($collection, ['courier','home']) ? 'Pending' : 'Received';
@@ -81,8 +81,6 @@ $stmt = $pdo->prepare($sql);
 if ($stmt->execute([$order_ref, $name, $email, $phone, $service_id, $shoe, $drop_date, $collection, $notes, $status])) {
 
     // ── Send confirmation email ─────────────────────────
-    // Runs after the DB insert so the order is guaranteed to
-    // exist before the customer tries to track it.
     $mailSent = sendBookingConfirmation([
         'order_ref'  => $order_ref,
         'name'       => $name,
@@ -98,11 +96,6 @@ if ($stmt->execute([$order_ref, $name, $email, $phone, $service_id, $shoe, $drop
     if (!$mailSent) {
         error_log("Email failed for order: " . $order_ref);
     }
-    // A mail failure is intentionally non-fatal: the order is
-    // already saved, so we redirect to the tracker regardless.
-    // For stricter error surfacing, capture the return value:
-    //   $mailSent = sendBookingConfirmation([...]);
-    //   if (!$mailSent) { /* log or surface warning */ }
 
     header("Location: solemate_homepage.php?page=tracker&oid=" . urlencode($order_ref) . "&new=1");
     exit;
