@@ -21,10 +21,8 @@
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
-// ✅ Load PHPMailer directly — no Composer needed
-require __DIR__ . '/PHPMailer/src/Exception.php';
-require __DIR__ . '/PHPMailer/src/PHPMailer.php';
-require __DIR__ . '/PHPMailer/src/SMTP.php';
+// ✅ Load PHPMailer via Composer autoloader
+require __DIR__ . '/../vendor/autoload.php';
 
 // ─────────────────────────────────────────────────────────────
 //  loadEnv() — Parse a .env file and populate $_ENV / getenv()
@@ -89,7 +87,9 @@ function sendBookingConfirmation($data) {
         $mail->addAddress($data['email'], $data['name']);
 
         // 🔗 Tracker URL
-        $trackerUrl = 'https://solemate-production-0043.up.railway.app/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
+        $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $trackerUrl = $protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
 
         // 📧 Email Content — use the full HTML template
         $mail->isHTML(true);
@@ -440,7 +440,9 @@ function sendStatusUpdateEmail(array $data): bool {
         $mail->setFrom(getenv('MAIL_USERNAME'), getenv('MAIL_FROM_NAME') ?: 'SoleMate');
         $mail->addAddress($data['email'], $data['name']);
 
-        $trackerUrl = $data['tracker_url'] ?? ('https://solemate-production-0043.up.railway.app/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']));
+        $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $trackerUrl = $data['tracker_url'] ?? ($protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']));
 
         $mail->isHTML(true);
         $mail->CharSet = 'UTF-8';
