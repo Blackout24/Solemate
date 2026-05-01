@@ -1,40 +1,15 @@
 <?php
 // ═══════════════════════════════════════════════════════
-//  db.php  —  PDO Database Connection (SQL Server / SSMS)
+//  solemate_database_connection.php  —  PDO MySQL (Railway)
 // ═══════════════════════════════════════════════════════
-//
-//  REQUIREMENTS
-//  ─────────────────────────────────────────────────────
-//  • PHP extension: pdo_sqlsrv   (Microsoft SQL Server Driver for PHP)
-//    Install on Windows (XAMPP / WAMP):
-//      1. Download the correct .dll from:
-//         https://learn.microsoft.com/en-us/sql/connect/php/download-drivers-php-sql-server
-//      2. Copy php_pdo_sqlsrv_XX_ts.dll to your PHP ext\ folder
-//      3. Add to php.ini:
-//           extension=php_pdo_sqlsrv_XX_ts.dll
-//      4. Restart Apache / IIS
-//
-//    Install on Linux (Ubuntu/Debian):
-//      sudo pecl install pdo_sqlsrv
-//
-//  • Microsoft ODBC Driver 17 or 18 for SQL Server must be installed.
-//    Download: https://aka.ms/downloadmsodbcsql
-//
-//  CONNECTION SETTINGS — edit these to match your environment
-//  ─────────────────────────────────────────────────────
 
-$host    = 'DESKTOP-4F355RV\\SQLEXPRESS';          // e.g. 'localhost\SQLEXPRESS' for Express edition
-$db      = 'shoe_repair_db';     // Database created by sql/SQLQuery1.sql
-$user    = 'DESKTOP-4F355RV\\User';                 // SQL Server login (ignored if Windows Auth below)
-$pass    = '';                   // SQL Server password
+$host = getenv('MYSQLHOST')     ?: 'mysql.railway.internal';
+$port = getenv('MYSQLPORT')     ?: '3306';
+$db   = getenv('MYSQL_DATABASE') ?: 'railway';
+$user = getenv('MYSQLUSER')     ?: 'root';
+$pass = getenv('MYSQLPASSWORD') ?: '';
 
-// Set to true to use Windows Authentication instead of SQL login:
-$use_windows_auth = true;
-
-// ─────────────────────────────────────────────────────
-//  Build DSN & connect
-// ─────────────────────────────────────────────────────
-$dsn = "sqlsrv:Server={$host};Database={$db};TrustServerCertificate=1";
+$dsn = "mysql:host={$host};port={$port};dbname={$db};charset=utf8mb4";
 
 $options = [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
@@ -43,11 +18,7 @@ $options = [
 ];
 
 try {
-    if ($use_windows_auth) {
-        $pdo = new PDO($dsn, null, null, $options);
-    } else {
-        $pdo = new PDO($dsn, $user, $pass, $options);
-    }
+    $pdo = new PDO($dsn, $user, $pass, $options);
 } catch (\PDOException $e) {
     die('
     <!DOCTYPE html><html><head>
@@ -62,15 +33,12 @@ try {
       ul{text-align:left;color:#8B7355;font-size:13px;line-height:1.8;margin-top:0.75rem}
     </style>
     </head><body><div class="box">
-    <h2>⚠️ SQL Server Connection Failed</h2>
+    <h2>⚠️ Database Connection Failed</h2>
     <p>Could not connect to <code>' . htmlspecialchars($db) . '</code> on <code>' . htmlspecialchars($host) . '</code>.</p>
     <ul>
-      <li>SQL Server / SQL Server Express is running</li>
-      <li>You have run <code>sql/SQLQuery1.sql</code> in SSMS</li>
-      <li>The <code>pdo_sqlsrv</code> PHP extension is installed &amp; enabled</li>
-      <li>Microsoft ODBC Driver 17 or 18 for SQL Server is installed</li>
-      <li><code>$host</code>, <code>$user</code>, and <code>$pass</code> in <code>solemate_database_connection.php</code> are correct</li>
-      <li>SQL Server Browser service is running (required for named instances like <code>localhost\SQLEXPRESS</code>)</li>
+      <li>MySQL service is running on Railway</li>
+      <li>Environment variables are set correctly in Railway dashboard</li>
+      <li>Your SQL tables have been imported into the Railway MySQL database</li>
     </ul>
     <p><small>Error detail: ' . htmlspecialchars($e->getMessage()) . '</small></p>
     </div></body></html>');
