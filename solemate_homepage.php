@@ -9,7 +9,7 @@ $page       = $_GET['page'] ?? 'services';
 $validPages = ['services', 'booking', 'tracker', 'calculator', 'reviews'];
 if (!in_array($page, $validPages)) $page = 'services';
 
-$services = $pdo->query("SELECT * FROM dbo.services ORDER BY sort_order")->fetchAll();
+$services = $pdo->query("SELECT * FROM services ORDER BY sort_order")->fetchAll();
 
 $trackResult = null;
 $trackError  = null;
@@ -33,8 +33,8 @@ if ($page === 'tracker' && isset($_GET['oid'])) {
                 o.status,
                 o.order_date,
                 s.service_name
-            FROM dbo.orders o
-            LEFT JOIN dbo.services s ON o.service_id = s.id
+            FROM orders o
+            LEFT JOIN services s ON o.service_id = s.id
             WHERE o.order_ref = ?
         ");
         $stmt->execute([$rawOid]);
@@ -156,7 +156,7 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
 .divider{border:none;border-top:1px solid rgba(107,66,38,0.1);margin:1.375rem 0}
 .not-found{background:#fff8f6;border:1px solid rgba(212,86,26,0.22);border-radius:8px;padding:0.875rem 1.125rem;font-size:13px;color:#8B2200;margin-top:0.875rem}
 
-.steps-wrap{position:relative;display:flex;justify-content:space-between;margin:1.5rem 0 1.125removerflow:hidden;border-radius:8px;}
+.steps-wrap{position:relative;display:flex;justify-content:space-between;margin:1.5rem 0 1.125rem;overflow:hidden;border-radius:8px;}
 .steps-track{position:absolute;top:13px;left:0;right:0;height:3px;background:var(--light)}
 .steps-fill{position:absolute;top:13px;left:0;height:3px;border-radius:3px;background:linear-gradient(90deg,transparent,var(--accent),#ff9a5c,var(--accent),transparent);max-width:100%;overflow:hidden;background-size:200% 100%;box-shadow:0 0 6px var(--accent),0 0 12px var(--accent),0 0 20px rgba(212,86,26,0.7);animation:electricFlow 2s linear infinite}
 .steps-fill::after{content:'';position:absolute;inset:0;background:linear-gradient(120deg,transparent,rgba(255,255,255,0.9),transparent);animation:electricPulse 1.5s infinite}
@@ -246,7 +246,7 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
   </div>
 </div>
 <div class="stats-bar">
-  <?php $orderCount = $pdo->query("SELECT COUNT(*) FROM dbo.orders")->fetchColumn(); ?>
+  <?php $orderCount = $pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn(); ?>
   <div><div class="stat-num"><?= number_format(max((int)$orderCount, 12847)) ?>+</div><div class="stat-lbl">Orders completed</div></div>
   <div><div class="stat-num">4.9 ★</div><div class="stat-lbl">Average rating</div></div>
   <div><div class="stat-num">48h</div><div class="stat-lbl">Avg turnaround</div></div>
