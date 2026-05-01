@@ -156,15 +156,15 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
 .divider{border:none;border-top:1px solid rgba(107,66,38,0.1);margin:1.375rem 0}
 .not-found{background:#fff8f6;border:1px solid rgba(212,86,26,0.22);border-radius:8px;padding:0.875rem 1.125rem;font-size:13px;color:#8B2200;margin-top:0.875rem}
 
-.steps-wrap{position:relative;display:flex;justify-content:space-between;margin:1.5rem 0 1.125rem;overflow:hidden;border-radius:8px;}
+.steps-wrap{position:relative;display:flex;justify-content:space-between;margin:1.5rem 0 1.125rem;border-radius:8px;}
 .steps-track{position:absolute;top:13px;left:0;right:0;height:3px;background:var(--light)}
 .steps-fill{position:absolute;top:13px;left:0;height:3px;border-radius:3px;background:linear-gradient(90deg,transparent,var(--accent),#ff9a5c,var(--accent),transparent);max-width:100%;overflow:hidden;background-size:200% 100%;box-shadow:0 0 6px var(--accent),0 0 12px var(--accent),0 0 20px rgba(212,86,26,0.7);animation:electricFlow 2s linear infinite}
 .steps-fill::after{content:'';position:absolute;inset:0;background:linear-gradient(120deg,transparent,rgba(255,255,255,0.9),transparent);animation:electricPulse 1.5s infinite}
 .step{display:flex;flex-direction:column;align-items:center;gap:5px;z-index:2;flex:1}
-.step-dot{width:27px;height:27px;border-radius:50%;border:2px solid var(--light);background:var(--cream);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted);font-weight:500}
+.step-dot{width:30px;height:30px;border-radius:50%;border:2px solid var(--light);background:var(--cream);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);font-weight:500}
 .step.done .step-dot{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 0 8px var(--accent),0 0 16px var(--accent),0 0 22px rgba(212,86,26,0.8)}
 .step.active .step-dot{border-color:var(--accent);color:var(--accent);background:#fff;box-shadow:0 0 10px var(--accent),0 0 20px rgba(212,86,26,0.7);animation:pulseDot 1.2s infinite}
-.step-lbl{font-size:10px;color:var(--muted);text-align:center;max-width:58px;line-height:1.3}
+.step-lbl{font-size:10px;color:var(--muted);text-align:center;max-width:70px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .step.done .step-lbl,.step.active .step-lbl{color:var(--dark);font-weight:500}
 .order-box{background:var(--cream);border-radius:9px;padding:0.9rem 1.125rem;font-size:13px;color:var(--muted);line-height:2;border-left:3px solid var(--accent)}
 .order-box strong{color:var(--dark)}
@@ -360,8 +360,8 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
         ? ['Received'=>1,'Assessment'=>2,'In service'=>3,'Quality check'=>4,'Ready'=>5]
         : ['Pending'=>1,'Received'=>2,'Assessment'=>3,'In service'=>4,'Quality check'=>5,'Ready'=>6];
     $stepLabels = $isDropOff
-        ? ['Received','Assessment','In service','Quality check','Ready']
-        : ['Pending','Received','Assessment','In service','Quality check','Ready'];
+        ? ['Received','Assessment','In service','QC Check','Ready']
+        : ['Pending','Received','Assessment','In service','QC Check','Ready'];
     $totalSteps = count($stepLabels);
     $step = $statusStep[$o['status']] ?? 1;
     $pct  = round(($step - 1) / ($totalSteps - 1) * 100);
