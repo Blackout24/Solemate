@@ -1,0 +1,12 @@
+# ── Sensitive / environment ──────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── PHP / Composer ───────────────────────────────────────────
+vendor/
+composer.lock
+
+# ── OS junk ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
