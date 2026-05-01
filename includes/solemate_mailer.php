@@ -89,9 +89,7 @@ function sendBookingConfirmation($data) {
         $mail->addAddress($data['email'], $data['name']);
 
         // 🔗 Tracker URL
-        $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $trackerUrl = $protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
+        $trackerUrl = 'https://solemate-production-0043.up.railway.app/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
 
         // 📧 Email Content — use the full HTML template
         $mail->isHTML(true);
@@ -442,9 +440,7 @@ function sendStatusUpdateEmail(array $data): bool {
         $mail->setFrom(getenv('MAIL_USERNAME'), getenv('MAIL_FROM_NAME') ?: 'SoleMate');
         $mail->addAddress($data['email'], $data['name']);
 
-        $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $trackerUrl = $data['tracker_url'] ?? ($protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']));
+        $trackerUrl = $data['tracker_url'] ?? ('https://solemate-production-0043.up.railway.app/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']));
 
         $mail->isHTML(true);
         $mail->CharSet = 'UTF-8';
