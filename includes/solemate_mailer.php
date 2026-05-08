@@ -2,7 +2,15 @@
 // ═══════════════════════════════════════════════════════
 //  solemate_mailer.php  —  Booking Confirmation Mailer
 //
-//  Usage:
+//  Transport: Resend HTTP API (works on ALL Railway plans)
+//  Docs:      https://resend.com/docs/send-with-php
+//
+//  .env keys required:
+//    RESEND_API_KEY=re_xxxxxxxxxxxx
+//    MAIL_FROM=noreply@yourdomain.com   (must be a verified Resend domain)
+//    MAIL_FROM_NAME=SoleMate            (optional, defaults to 'SoleMate')
+//
+//  Usage (unchanged from before):
 //    require 'includes/solemate_mailer.php';
 //    $ok = sendBookingConfirmation([
 //        'order_ref'  => 'SM-20260423-AB12',
@@ -13,44 +21,26 @@
 //        'drop_date'  => '2026-04-28',
 //        'collection' => 'drop-off',
 //    ]);
-//
-//  For production SMTP swap the mail() call at the bottom
-//  for PHPMailer/Symfony Mailer (see comment block there).
 // ═══════════════════════════════════════════════════════
-
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
-
-// ✅ Load PHPMailer via Composer autoloader
-require __DIR__ . '/../vendor/autoload.php';
 
 // ─────────────────────────────────────────────────────────────
 //  loadEnv() — Parse a .env file and populate $_ENV / getenv()
-//
-//  Call once at bootstrap (e.g. top of index.php or here).
-//  Skips lines that are blank or start with #.
-//  Never overwrites a variable already set in the real env
-//  (so server-level env vars always take precedence).
 // ─────────────────────────────────────────────────────────────
 function loadEnv(string $path): void {
     if (!is_readable($path)) {
-        // .env is optional on servers that inject env vars natively
         return;
     }
     foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
         $line = trim($line);
         if ($line === '' || $line[0] === '#') {
-            continue; // skip comments and blank lines
+            continue;
         }
-        // Split on the FIRST '=' only so passwords may contain '='
         [$key, $value] = array_pad(explode('=', $line, 2), 2, '');
         $key   = trim($key);
         $value = trim($value);
-        // Strip optional surrounding quotes
         if (preg_match('/^(["\'])(.*)\\1$/', $value, $m)) {
             $value = $m[2];
         }
-        // Don't overwrite variables already set at the OS level
         if (!array_key_exists($key, $_ENV) && getenv($key) === false) {
             putenv("$key=$value");
             $_ENV[$key] = $value;
@@ -62,70 +52,119 @@ function loadEnv(string $path): void {
 loadEnv(__DIR__ . '/../.env');
 
 // ─────────────────────────────────────────────────────────────
-//  smtpConfigure() — Apply SMTP credentials to a PHPMailer
-//  instance using values read from the environment.
+//  resendSend() — POST a single email via the Resend REST API.
+//
+//  Returns true on success, false on failure (error is logged).
+//  Uses only ext-curl which is available in every PHP build.
 // ─────────────────────────────────────────────────────────────
-function smtpConfigure(PHPMailer $mail): void {
-    $mail->isSMTP();
-    $mail->Host       = getenv('MAIL_HOST')       ?: 'smtp.gmail.com';
-    $mail->SMTPAuth   = true;
-    $mail->Username   = getenv('MAIL_USERNAME')   ?: '';
-    $mail->Password   = getenv('MAIL_PASSWORD')   ?: '';
-    $mail->SMTPSecure = getenv('MAIL_ENCRYPTION') ?: 'tls';
-    $mail->Port       = (int)(getenv('MAIL_PORT') ?: 587);
-}
+function resendSend(string $toEmail, string $toName, string $subject, string $html, string $text): bool {
+    $apiKey  = getenv('RESEND_API_KEY') ?: '';
+    $fromName = getenv('MAIL_FROM_NAME') ?: 'SoleMate';
+    $fromAddr = getenv('MAIL_FROM')     ?: (getenv('MAIL_USERNAME') ?: '');
 
-function sendBookingConfirmation($data) {
-    $mail = new PHPMailer(true);
-
-    try {
-        // 🔐 SMTP SETTINGS — credentials loaded from .env
-        smtpConfigure($mail);
-
-        // 👤 Sender & Recipient
-        $mail->setFrom(getenv('MAIL_USERNAME'), getenv('MAIL_FROM_NAME') ?: 'SoleMate');
-        $mail->addAddress($data['email'], $data['name']);
-
-        // 🔗 Tracker URL
-        $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $trackerUrl = $protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
-
-        // 📧 Email Content — use the full HTML template
-        $mail->isHTML(true);
-        $mail->CharSet = 'UTF-8';
-        $mail->Subject = 'Booking Confirmed — ' . $data['order_ref'] . ' · SoleMate';
-        $mail->Body    = buildConfirmationHtml(
-            $data['name'],
-            $data['order_ref'],
-            $data['service']    ?? 'Shoe service',
-            $data['shoe']       ?? 'Not specified',
-            $data['drop_date']  ?? 'TBC',
-            $data['collection'] ?? 'drop-off',
-            $trackerUrl,
-            $data['price']      ?? null,
-            $data['price_from'] ?? false
-        );
-        $mail->AltBody = buildConfirmationText(
-            $data['name'],
-            $data['order_ref'],
-            $data['service']    ?? 'Shoe service',
-            $data['shoe']       ?? 'Not specified',
-            $data['drop_date']  ?? 'TBC',
-            $data['collection'] ?? 'drop-off',
-            $trackerUrl,
-            $data['price']      ?? null,
-            $data['price_from'] ?? false
-        );
-
-        return $mail->send();
-
-    } catch (Exception $e) {
-        error_log("Mailer Error: " . $mail->ErrorInfo);
+    if (!$apiKey || !$fromAddr) {
+        error_log('Resend mailer: RESEND_API_KEY or MAIL_FROM is not set in .env');
         return false;
     }
+
+    $payload = json_encode([
+        'from'    => "{$fromName} <{$fromAddr}>",
+        'to'      => ["{$toName} <{$toEmail}>"],
+        'subject' => $subject,
+        'html'    => $html,
+        'text'    => $text,
+    ]);
+
+    $ch = curl_init('https://api.resend.com/emails');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => $payload,
+        CURLOPT_TIMEOUT        => 10,           // fail fast — never hangs
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $apiKey,
+            'Content-Type: application/json',
+        ],
+    ]);
+
+    $body = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err  = curl_error($ch);
+    curl_close($ch);
+
+    if ($err) {
+        error_log("Resend curl error: {$err}");
+        return false;
+    }
+
+    if ($code < 200 || $code >= 300) {
+        error_log("Resend API error {$code}: {$body}");
+        return false;
+    }
+
+    return true;
 }
 
+// ─────────────────────────────────────────────────────────────
+//  sendBookingConfirmation()
+// ─────────────────────────────────────────────────────────────
+function sendBookingConfirmation(array $data): bool {
+    $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $trackerUrl = $protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
+
+    $subject = 'Booking Confirmed — ' . $data['order_ref'] . ' · SoleMate';
+
+    $html = buildConfirmationHtml(
+        $data['name'],
+        $data['order_ref'],
+        $data['service']    ?? 'Shoe service',
+        $data['shoe']       ?? 'Not specified',
+        $data['drop_date']  ?? 'TBC',
+        $data['collection'] ?? 'drop-off',
+        $trackerUrl,
+        $data['price']      ?? null,
+        $data['price_from'] ?? false
+    );
+
+    $text = buildConfirmationText(
+        $data['name'],
+        $data['order_ref'],
+        $data['service']    ?? 'Shoe service',
+        $data['shoe']       ?? 'Not specified',
+        $data['drop_date']  ?? 'TBC',
+        $data['collection'] ?? 'drop-off',
+        $trackerUrl,
+        $data['price']      ?? null,
+        $data['price_from'] ?? false
+    );
+
+    return resendSend($data['email'], $data['name'], $subject, $html, $text);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  sendStatusUpdateEmail()
+// ─────────────────────────────────────────────────────────────
+function sendStatusUpdateEmail(array $data): bool {
+    $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $trackerUrl = $data['tracker_url'] ?? ($protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']));
+
+    $subject = 'Order Update — ' . $data['order_ref'] . ' · SoleMate';
+
+    return resendSend(
+        $data['email'],
+        $data['name'],
+        $subject,
+        buildStatusUpdateHtml($data, $trackerUrl),
+        buildStatusUpdateText($data, $trackerUrl)
+    );
+}
+
+
+// ══════════════════════════════════════════════════════════════
+//  EMAIL TEMPLATES  (unchanged)
+// ══════════════════════════════════════════════════════════════
 
 // ── HTML email template ──────────────────────────────────────────────────────
 function buildConfirmationHtml(
@@ -141,7 +180,6 @@ function buildConfirmationHtml(
 ): string {
     $year = date('Y');
 
-    // Build receipt block (injected into heredoc below)
     if ($price !== null) {
         $noteText = $priceFrom ? 'Final price confirmed after technician assessment.' : 'Fixed price — payable on collection.';
         $priceLabel  = ($priceFrom ? 'From ' : '') . 'R' . number_format($price, 2);
@@ -425,38 +463,6 @@ TEXT;
 
 
 // ── Status update email ───────────────────────────────────────────────────────
-/**
- * Send an order status update notification to the customer.
- *
- * @param  array $data  Keys: order_ref, name, email, service, shoe, status, tracker_url
- * @return bool
- */
-function sendStatusUpdateEmail(array $data): bool {
-    $mail = new PHPMailer(true);
-    try {
-        // 🔐 SMTP SETTINGS — credentials loaded from .env
-        smtpConfigure($mail);
-
-        $mail->setFrom(getenv('MAIL_USERNAME'), getenv('MAIL_FROM_NAME') ?: 'SoleMate');
-        $mail->addAddress($data['email'], $data['name']);
-
-        $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $trackerUrl = $data['tracker_url'] ?? ($protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']));
-
-        $mail->isHTML(true);
-        $mail->CharSet = 'UTF-8';
-        $mail->Subject = 'Order Update — ' . $data['order_ref'] . ' · SoleMate';
-        $mail->Body    = buildStatusUpdateHtml($data, $trackerUrl);
-        $mail->AltBody = buildStatusUpdateText($data, $trackerUrl);
-
-        return $mail->send();
-    } catch (Exception $e) {
-        error_log('Status mailer error: ' . $mail->ErrorInfo);
-        return false;
-    }
-}
-
 function buildStatusUpdateHtml(array $d, string $trackerUrl): string {
     $year    = date('Y');
     $name    = htmlspecialchars($d['name']      ?? '', ENT_QUOTES, 'UTF-8');
@@ -465,7 +471,6 @@ function buildStatusUpdateHtml(array $d, string $trackerUrl): string {
     $shoe    = htmlspecialchars($d['shoe']       ?? '', ENT_QUOTES, 'UTF-8');
     $status  = htmlspecialchars($d['status']    ?? '', ENT_QUOTES, 'UTF-8');
 
-    // Status-specific display config
     $statusConfig = [
         'Pending'       => ['emoji' => '⏳', 'color' => '#A0A0A0', 'msg' => 'Your booking is logged and awaiting drop-off confirmation.'],
         'Received'      => ['emoji' => '📥', 'color' => '#8B7355', 'msg' => 'We have received your shoes and they are in our care.'],
