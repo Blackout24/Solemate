@@ -6,7 +6,7 @@
 require 'includes/solemate_database_connection.php';
 
 $page       = $_GET['page'] ?? 'services';
-$validPages = ['services', 'booking', 'tracker', 'calculator', 'reviews'];
+$validPages = ['services', 'booking', 'tracker', 'calculator', 'reviews', 'about'];
 if (!in_array($page, $validPages)) $page = 'services';
 
 $services = $pdo->query("SELECT * FROM services ORDER BY sort_order")->fetchAll();
@@ -57,8 +57,10 @@ if ($page === 'reviews') {
     $reviews = $pdo->query("SELECT * FROM reviews ORDER BY created_at DESC")->fetchAll();
 }
 
-
-$preselectedId = (int)($_GET['service_id'] ?? 0);
+$preselectedId    = (int)($_GET['service_id'] ?? 0);
+$preselectedPairs = (int)($_GET['pairs']      ?? 1);
+$preselectedRush  = (int)($_GET['rush']       ?? 0);
+$fromQuote        = isset($_GET['pairs']) || isset($_GET['rush']);
 
 function e(string $val): string {
     return htmlspecialchars($val, ENT_QUOTES, 'UTF-8');
@@ -169,6 +171,7 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
 .order-box{background:var(--cream);border-radius:9px;padding:0.9rem 1.125rem;font-size:13px;color:var(--muted);line-height:2;border-left:3px solid var(--accent)}
 .order-box strong{color:var(--dark)}
 
+/* ── Calculator ── */
 .calc-card{background:#fff;border:1px solid rgba(107,66,38,0.12);border-radius:14px;padding:1.875rem;max-width:530px}
 .calc-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(107,66,38,0.07);gap:1rem}
 .calc-lbl{font-size:13px;color:var(--muted)}
@@ -176,9 +179,10 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
 .calc-total{display:flex;justify-content:space-between;align-items:center;padding:1.125rem 0 0;margin-top:0.5rem}
 .total-lbl{font-size:14px;font-weight:500}
 .total-price{font-family:'Playfair Display',serif;font-size:28px;font-weight:700;color:var(--accent)}
-.calc-book-btn{margin-top:1.25rem;background:var(--dark);color:var(--tan);border:none;padding:12px;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;text-decoration:none;display:block;text-align:center;transition:opacity 0.15s;width:100%}
+.calc-book-btn{margin-top:1.25rem;background:var(--accent);color:#fff;border:none;padding:12px;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;text-decoration:none;display:block;text-align:center;transition:opacity 0.15s;width:100%}
 .calc-book-btn:hover{opacity:0.83}
 
+/* ── Reviews ── */
 .rating-summary{background:#fff;border:1px solid rgba(107,66,38,0.12);border-radius:12px;padding:1.375rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:1.5rem;max-width:340px}
 .big-score{font-family:'Playfair Display',serif;font-size:3rem;font-weight:700;color:var(--dark);line-height:1}
 .big-stars{font-size:18px;color:#F4A623;letter-spacing:2px}
@@ -191,6 +195,40 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
 .avatar{width:36px;height:36px;border-radius:50%;background:var(--light);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:var(--brown);flex-shrink:0}
 .rev-name{font-size:13px;font-weight:500}
 .rev-loc{font-size:11px;color:var(--muted)}
+
+/* ── About Us ── */
+.about-intro{max-width:620px;margin:0 auto 3rem;text-align:center}
+.about-intro p{font-size:15px;color:var(--muted);line-height:1.8}
+.values-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:3rem}
+.value-card{background:#fff;border:1px solid rgba(107,66,38,0.12);border-radius:12px;padding:1.5rem;text-align:center;transition:transform 0.18s,box-shadow 0.18s}
+.value-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(107,66,38,0.11)}
+.value-icon{font-size:2rem;margin-bottom:0.75rem;display:block}
+.value-title{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;margin-bottom:0.4rem}
+.value-desc{font-size:12px;color:var(--muted);line-height:1.6}
+.shops-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.25rem;margin-bottom:3rem}
+.shop-card{background:#fff;border:1px solid rgba(107,66,38,0.12);border-radius:14px;overflow:hidden;transition:transform 0.18s,box-shadow 0.18s}
+.shop-card:hover{transform:translateY(-3px);box-shadow:0 10px 28px rgba(107,66,38,0.13)}
+.shop-card-header{background:var(--dark);padding:1.125rem 1.375rem;display:flex;align-items:center;justify-content:space-between}
+.shop-badge{background:rgba(200,169,126,0.15);border:1px solid rgba(200,169,126,0.3);color:var(--tan);font-size:10px;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:1px}
+.shop-name{font-family:'Playfair Display',serif;font-size:16px;color:#fff;font-weight:700}
+.shop-body{padding:1.375rem}
+.shop-detail{display:flex;align-items:flex-start;gap:10px;margin-bottom:0.875rem}
+.shop-detail-icon{font-size:14px;margin-top:1px;flex-shrink:0;width:20px;text-align:center}
+.shop-detail-text{font-size:13px;color:var(--muted);line-height:1.55}
+.shop-detail-text strong{color:var(--dark)}
+.shop-hours-grid{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:12px;margin-top:4px}
+.shop-hours-day{color:var(--muted)}
+.shop-hours-time{color:var(--dark);font-weight:500}
+.shop-cta{display:flex;gap:0.5rem;margin-top:1.25rem;padding-top:1rem;border-top:1px solid rgba(107,66,38,0.08)}
+.shop-dir-btn{flex:1;background:var(--accent);color:#fff;border:none;padding:9px 14px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;transition:opacity 0.15s}
+.shop-dir-btn:hover{opacity:0.87}
+.shop-call-btn{background:transparent;border:1px solid rgba(107,66,38,0.2);color:var(--dark);padding:9px 14px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;transition:all 0.15s;flex-shrink:0}
+.shop-call-btn:hover{border-color:var(--brown);color:var(--brown)}
+.flagship-tag{display:inline-flex;align-items:center;gap:5px;background:rgba(212,86,26,0.1);border:1px solid rgba(212,86,26,0.25);color:var(--accent);font-size:10px;padding:3px 10px;border-radius:20px;margin-bottom:0.75rem;text-transform:uppercase;letter-spacing:0.8px}
+.team-blurb{background:linear-gradient(135deg,var(--dark) 0%,#2d1a0e 100%);border-radius:14px;padding:2.5rem;text-align:center;margin-bottom:3rem;position:relative;overflow:hidden}
+.team-blurb::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 110%,rgba(200,169,126,0.08) 0%,transparent 65%);pointer-events:none}
+.team-blurb-title{font-family:'Playfair Display',serif;font-size:1.5rem;color:#fff;margin-bottom:0.75rem}
+.team-blurb p{font-size:13px;color:rgba(255,255,255,0.5);line-height:1.8;max-width:480px;margin:0 auto 1.5rem}
 
 footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;padding:1.875rem;font-size:12px;line-height:2.2;margin-top:2rem}
 .footer-logo{font-family:'Playfair Display',serif;color:var(--tan);font-size:16px;display:block;margin-bottom:4px}
@@ -206,12 +244,10 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
   0%{background-position:200% 0;}
   100%{background-position:-200% 0;}
 }
-
 @keyframes electricPulse{
   0%{transform:translateX(-100%);}
   100%{transform:translateX(100%);}
 }
-
 @keyframes pulseDot{
   0%,100%{transform:scale(1);}
   50%{transform:scale(1.2);}
@@ -225,7 +261,7 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
   <div style="display:flex;align-items:center">
     <div class="nav-tabs">
       <?php
-      $tabs = ['services'=>'Services','booking'=>'Book','tracker'=>'Track Order','calculator'=>'Quote','reviews'=>'Reviews'];
+      $tabs = ['services'=>'Services','booking'=>'Book','tracker'=>'Track Order','calculator'=>'Quote','reviews'=>'Reviews','about'=>'About Us'];
       foreach ($tabs as $key => $label) {
           $active = ($page === $key) ? ' active' : '';
           echo "<a href=\"solemate_homepage.php?page={$key}\" class=\"nav-tab{$active}\">{$label}</a>";
@@ -312,6 +348,24 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
           </option>
         <?php endforeach; ?>
       </select>
+    </div>
+    <div class="fg-row" id="quote-extras" style="<?= $fromQuote ? '' : 'display:none' ?>">
+      <div class="fg">
+        <label>Number of pairs</label>
+        <select name="pairs">
+          <option value="1"<?= $preselectedPairs === 1 ? ' selected' : '' ?>>1 pair</option>
+          <option value="2"<?= $preselectedPairs === 2 ? ' selected' : '' ?>>2 pairs (−10%)</option>
+          <option value="3"<?= $preselectedPairs === 3 ? ' selected' : '' ?>>3 pairs (−15%)</option>
+          <option value="4"<?= $preselectedPairs >= 4 ? ' selected' : '' ?>>4+ pairs (−20%)</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>Rush service (24h)</label>
+        <select name="rush">
+          <option value="0"<?= $preselectedRush === 0 ? ' selected' : '' ?>>No</option>
+          <option value="150"<?= $preselectedRush === 150 ? ' selected' : '' ?>>Yes (+R150)</option>
+        </select>
+      </div>
     </div>
     <div class="fg"><label>Shoe brand / type</label><input type="text" name="shoe_type" placeholder="e.g. Nike Air Max, Oxford Brogues, Timberlands"></div>
     <div class="fg-row">
@@ -451,7 +505,10 @@ function calcP() {
   const total = Math.round(base * pairs * disc) + col + rush;
   document.getElementById('cres').textContent = 'R' + total.toLocaleString('en-ZA');
   const id = cs.options[cs.selectedIndex].dataset.id;
-  document.getElementById('calc-book-link').href = 'solemate_homepage.php?page=booking&service_id=' + id;
+  document.getElementById('calc-book-link').href =
+    'solemate_homepage.php?page=booking&service_id=' + id +
+    '&pairs=' + pairs +
+    '&rush=' + rush;
 }
 calcP();
 </script>
@@ -486,6 +543,148 @@ calcP();
   <div style="font-family:'Playfair Display',serif;font-size:16px;font-weight:700;margin-bottom:0.5rem">Happy with your service?</div>
   <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;line-height:1.6">We'd love to hear from you. Help others find SoleMate.</p>
   <a href="mailto:hello@solemate.co.za?subject=My SoleMate Review" class="btn-p" style="font-size:13px;padding:10px 22px">Leave a review →</a>
+</div>
+
+<?php elseif ($page === 'about'): ?>
+<div class="sec-label">Our story</div>
+<div class="sec-title">Born in Durban, built on craft</div>
+
+<div class="about-intro" style="margin-top:1rem">
+  <p>SoleMate was founded in 2008 by a family of cobblers who believed that great shoes deserve great care. What started as a single bench in Morningside has grown into three workshops across Durban — all united by the same obsession: bringing your favourite pair back to life.</p>
+</div>
+
+<div class="values-grid">
+  <div class="value-card">
+    <span class="value-icon">🧵</span>
+    <div class="value-title">Artisan craftsmanship</div>
+    <div class="value-desc">Every repair is done by hand. We don't rush, we don't cut corners — we do it right.</div>
+  </div>
+  <div class="value-card">
+    <span class="value-icon">♻️</span>
+    <div class="value-title">Sustainable approach</div>
+    <div class="value-desc">Restore, don't replace. We divert thousands of pairs from landfill each year.</div>
+  </div>
+  <div class="value-card">
+    <span class="value-icon">🏆</span>
+    <div class="value-title">15+ years expertise</div>
+    <div class="value-desc">Our cobblers are certified and continuously trained on the latest materials and techniques.</div>
+  </div>
+  <div class="value-card">
+    <span class="value-icon">📦</span>
+    <div class="value-title">Guaranteed results</div>
+    <div class="value-desc">Not happy? We'll redo the service free of charge. Your satisfaction is our promise.</div>
+  </div>
+</div>
+
+<div class="sec-label" style="margin-bottom:6px">Find us</div>
+<div class="sec-title" style="margin-bottom:8px">Our shops</div>
+<p class="sec-sub">Three convenient locations across Durban — drop in, or book online and we'll arrange collection.</p>
+
+<div class="shops-grid">
+
+  <!-- Morningside (Flagship) -->
+  <div class="shop-card">
+    <div class="shop-card-header">
+      <div class="shop-name">Morningside</div>
+      <span class="shop-badge">Flagship</span>
+    </div>
+    <div class="shop-body">
+      <div class="flagship-tag">⭐ Main Workshop</div>
+      <div class="shop-detail">
+        <span class="shop-detail-icon">📍</span>
+        <div class="shop-detail-text"><strong>123 Florida Road</strong><br>Morningside, Durban, 4001</div>
+      </div>
+      <div class="shop-detail">
+        <span class="shop-detail-icon">🕐</span>
+        <div class="shop-detail-text">
+          <div class="shop-hours-grid">
+            <span class="shop-hours-day">Mon – Fri</span><span class="shop-hours-time">8:00am – 6:00pm</span>
+            <span class="shop-hours-day">Saturday</span><span class="shop-hours-time">9:00am – 2:00pm</span>
+            <span class="shop-hours-day">Sunday</span><span class="shop-hours-time">Closed</span>
+          </div>
+        </div>
+      </div>
+      <div class="shop-detail">
+        <span class="shop-detail-icon">🚗</span>
+        <div class="shop-detail-text">Free street parking &amp; on-site bay</div>
+      </div>
+      <div class="shop-cta">
+        <a href="https://www.google.com/maps/search/123+Florida+Road+Morningside+Durban" target="_blank" class="shop-dir-btn">📍 Directions</a>
+        <a href="tel:0315550123" class="shop-call-btn">📞 031 555 0123</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Umhlanga -->
+  <div class="shop-card">
+    <div class="shop-card-header">
+      <div class="shop-name">Umhlanga</div>
+      <span class="shop-badge">Branch</span>
+    </div>
+    <div class="shop-body">
+      <div class="shop-detail">
+        <span class="shop-detail-icon">📍</span>
+        <div class="shop-detail-text"><strong>Shop 14, Umhlanga Village</strong><br>Chartwell Drive, Umhlanga, 4319</div>
+      </div>
+      <div class="shop-detail">
+        <span class="shop-detail-icon">🕐</span>
+        <div class="shop-detail-text">
+          <div class="shop-hours-grid">
+            <span class="shop-hours-day">Mon – Fri</span><span class="shop-hours-time">8:00am – 6:00pm</span>
+            <span class="shop-hours-day">Saturday</span><span class="shop-hours-time">9:00am – 3:00pm</span>
+            <span class="shop-hours-day">Sunday</span><span class="shop-hours-time">10:00am – 1:00pm</span>
+          </div>
+        </div>
+      </div>
+      <div class="shop-detail">
+        <span class="shop-detail-icon">🚗</span>
+        <div class="shop-detail-text">Undercover parking in village square</div>
+      </div>
+      <div class="shop-cta">
+        <a href="https://www.google.com/maps/search/Chartwell+Drive+Umhlanga+Durban" target="_blank" class="shop-dir-btn">📍 Directions</a>
+        <a href="tel:0315550456" class="shop-call-btn">📞 031 555 0456</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Musgrave -->
+  <div class="shop-card">
+    <div class="shop-card-header">
+      <div class="shop-name">Musgrave</div>
+      <span class="shop-badge">Branch</span>
+    </div>
+    <div class="shop-body">
+      <div class="shop-detail">
+        <span class="shop-detail-icon">📍</span>
+        <div class="shop-detail-text"><strong>Lower Ground, Musgrave Centre</strong><br>Musgrave Road, Berea, 4001</div>
+      </div>
+      <div class="shop-detail">
+        <span class="shop-detail-icon">🕐</span>
+        <div class="shop-detail-text">
+          <div class="shop-hours-grid">
+            <span class="shop-hours-day">Mon – Fri</span><span class="shop-hours-time">9:00am – 6:00pm</span>
+            <span class="shop-hours-day">Saturday</span><span class="shop-hours-time">9:00am – 5:00pm</span>
+            <span class="shop-hours-day">Sunday</span><span class="shop-hours-time">10:00am – 3:00pm</span>
+          </div>
+        </div>
+      </div>
+      <div class="shop-detail">
+        <span class="shop-detail-icon">🚗</span>
+        <div class="shop-detail-text">Inside Musgrave Centre — ample mall parking</div>
+      </div>
+      <div class="shop-cta">
+        <a href="https://www.google.com/maps/search/Musgrave+Centre+Musgrave+Road+Durban" target="_blank" class="shop-dir-btn">📍 Directions</a>
+        <a href="tel:0315550789" class="shop-call-btn">📞 031 555 0789</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="team-blurb">
+  <div class="team-blurb-title">Can't make it in? No problem.</div>
+  <p>We offer courier collection from anywhere in Durban and the surrounding areas. Book online, drop your shoes at the door, and we'll handle the rest — delivery back to you included.</p>
+  <a href="solemate_homepage.php?page=booking" class="btn-p">Book a collection →</a>
 </div>
 
 <?php endif; ?>
