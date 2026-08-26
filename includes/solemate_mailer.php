@@ -2,15 +2,7 @@
 // ═══════════════════════════════════════════════════════
 //  solemate_mailer.php  —  Booking Confirmation Mailer
 //
-//  Transport: Resend HTTP API (works on ALL Railway plans)
-//  Docs:      https://resend.com/docs/send-with-php
-//
-//  .env keys required:
-//    RESEND_API_KEY=re_xxxxxxxxxxxx
-//    MAIL_FROM=noreply@yourdomain.com   (must be a verified Resend domain)
-//    MAIL_FROM_NAME=SoleMate            (optional, defaults to 'SoleMate')
-//
-//  Usage (unchanged from before):
+//  Usage:
 //    require 'includes/solemate_mailer.php';
 //    $ok = sendBookingConfirmation([
 //        'order_ref'  => 'SM-20260423-AB12',
@@ -21,26 +13,46 @@
 //        'drop_date'  => '2026-04-28',
 //        'collection' => 'drop-off',
 //    ]);
+//
+//  For production SMTP swap the mail() call at the bottom
+//  for PHPMailer/Symfony Mailer (see comment block there).
 // ═══════════════════════════════════════════════════════
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+// ✅ Load PHPMailer directly — no Composer needed
+require __DIR__ . '/PHPMailer/src/Exception.php';
+require __DIR__ . '/PHPMailer/src/PHPMailer.php';
+require __DIR__ . '/PHPMailer/src/SMTP.php';
 
 // ─────────────────────────────────────────────────────────────
 //  loadEnv() — Parse a .env file and populate $_ENV / getenv()
+//
+//  Call once at bootstrap (e.g. top of index.php or here).
+//  Skips lines that are blank or start with #.
+//  Never overwrites a variable already set in the real env
+//  (so server-level env vars always take precedence).
 // ─────────────────────────────────────────────────────────────
 function loadEnv(string $path): void {
     if (!is_readable($path)) {
+        // .env is optional on servers that inject env vars natively
         return;
     }
     foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
         $line = trim($line);
         if ($line === '' || $line[0] === '#') {
-            continue;
+            continue; // skip comments and blank lines
         }
+        // Split on the FIRST '=' only so passwords may contain '='
         [$key, $value] = array_pad(explode('=', $line, 2), 2, '');
         $key   = trim($key);
         $value = trim($value);
+        // Strip optional surrounding quotes
         if (preg_match('/^(["\'])(.*)\\1$/', $value, $m)) {
             $value = $m[2];
         }
+        // Don't overwrite variables already set at the OS level
         if (!array_key_exists($key, $_ENV) && getenv($key) === false) {
             putenv("$key=$value");
             $_ENV[$key] = $value;
@@ -52,119 +64,70 @@ function loadEnv(string $path): void {
 loadEnv(__DIR__ . '/../.env');
 
 // ─────────────────────────────────────────────────────────────
-//  resendSend() — POST a single email via the Resend REST API.
-//
-//  Returns true on success, false on failure (error is logged).
-//  Uses only ext-curl which is available in every PHP build.
+//  smtpConfigure() — Apply SMTP credentials to a PHPMailer
+//  instance using values read from the environment.
 // ─────────────────────────────────────────────────────────────
-function resendSend(string $toEmail, string $toName, string $subject, string $html, string $text): bool {
-    $apiKey  = getenv('RESEND_API_KEY') ?: '';
-    $fromName = getenv('MAIL_FROM_NAME') ?: 'SoleMate';
-    $fromAddr = getenv('MAIL_FROM')     ?: (getenv('MAIL_USERNAME') ?: '');
-
-    if (!$apiKey || !$fromAddr) {
-        error_log('Resend mailer: RESEND_API_KEY or MAIL_FROM is not set in .env');
-        return false;
-    }
-
-    $payload = json_encode([
-        'from'    => "{$fromName} <{$fromAddr}>",
-        'to'      => ["{$toName} <{$toEmail}>"],
-        'subject' => $subject,
-        'html'    => $html,
-        'text'    => $text,
-    ]);
-
-    $ch = curl_init('https://api.resend.com/emails');
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => $payload,
-        CURLOPT_TIMEOUT        => 10,           // fail fast — never hangs
-        CURLOPT_HTTPHEADER     => [
-            'Authorization: Bearer ' . $apiKey,
-            'Content-Type: application/json',
-        ],
-    ]);
-
-    $body = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $err  = curl_error($ch);
-    curl_close($ch);
-
-    if ($err) {
-        error_log("Resend curl error: {$err}");
-        return false;
-    }
-
-    if ($code < 200 || $code >= 300) {
-        error_log("Resend API error {$code}: {$body}");
-        return false;
-    }
-
-    return true;
+function smtpConfigure(PHPMailer $mail): void {
+    $mail->isSMTP();
+    $mail->Host       = getenv('MAIL_HOST')       ?: 'smtp.gmail.com';
+    $mail->SMTPAuth   = true;
+    $mail->Username   = getenv('MAIL_USERNAME')   ?: '';
+    $mail->Password   = getenv('MAIL_PASSWORD')   ?: '';
+    $mail->SMTPSecure = getenv('MAIL_ENCRYPTION') ?: 'tls';
+    $mail->Port       = (int)(getenv('MAIL_PORT') ?: 587);
 }
 
-// ─────────────────────────────────────────────────────────────
-//  sendBookingConfirmation()
-// ─────────────────────────────────────────────────────────────
-function sendBookingConfirmation(array $data): bool {
-    $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    $trackerUrl = $protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
+function sendBookingConfirmation($data) {
+    $mail = new PHPMailer(true);
 
-    $subject = 'Booking Confirmed — ' . $data['order_ref'] . ' · SoleMate';
+    try {
+        // 🔐 SMTP SETTINGS — credentials loaded from .env
+        smtpConfigure($mail);
 
-    $html = buildConfirmationHtml(
-        $data['name'],
-        $data['order_ref'],
-        $data['service']    ?? 'Shoe service',
-        $data['shoe']       ?? 'Not specified',
-        $data['drop_date']  ?? 'TBC',
-        $data['collection'] ?? 'drop-off',
-        $trackerUrl,
-        $data['price']      ?? null,
-        $data['price_from'] ?? false
-    );
+        // 👤 Sender & Recipient
+        $mail->setFrom(getenv('MAIL_USERNAME'), getenv('MAIL_FROM_NAME') ?: 'SoleMate');
+        $mail->addAddress($data['email'], $data['name']);
 
-    $text = buildConfirmationText(
-        $data['name'],
-        $data['order_ref'],
-        $data['service']    ?? 'Shoe service',
-        $data['shoe']       ?? 'Not specified',
-        $data['drop_date']  ?? 'TBC',
-        $data['collection'] ?? 'drop-off',
-        $trackerUrl,
-        $data['price']      ?? null,
-        $data['price_from'] ?? false
-    );
+        // 🔗 Tracker URL
+        $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $trackerUrl = $protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
 
-    return resendSend($data['email'], $data['name'], $subject, $html, $text);
+        // 📧 Email Content — use the full HTML template
+        $mail->isHTML(true);
+        $mail->CharSet = 'UTF-8';
+        $mail->Subject = 'Booking Confirmed — ' . $data['order_ref'] . ' · SoleMate';
+        $mail->Body    = buildConfirmationHtml(
+            $data['name'],
+            $data['order_ref'],
+            $data['service']    ?? 'Shoe service',
+            $data['shoe']       ?? 'Not specified',
+            $data['drop_date']  ?? 'TBC',
+            $data['collection'] ?? 'drop-off',
+            $trackerUrl,
+            $data['price']      ?? null,
+            $data['price_from'] ?? false
+        );
+        $mail->AltBody = buildConfirmationText(
+            $data['name'],
+            $data['order_ref'],
+            $data['service']    ?? 'Shoe service',
+            $data['shoe']       ?? 'Not specified',
+            $data['drop_date']  ?? 'TBC',
+            $data['collection'] ?? 'drop-off',
+            $trackerUrl,
+            $data['price']      ?? null,
+            $data['price_from'] ?? false
+        );
+
+        return $mail->send();
+
+    } catch (Exception $e) {
+        error_log("Mailer Error: " . $mail->ErrorInfo);
+        return false;
+    }
 }
 
-// ─────────────────────────────────────────────────────────────
-//  sendStatusUpdateEmail()
-// ─────────────────────────────────────────────────────────────
-function sendStatusUpdateEmail(array $data): bool {
-    $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    $trackerUrl = $data['tracker_url'] ?? ($protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']));
-
-    $subject = 'Order Update — ' . $data['order_ref'] . ' · SoleMate';
-
-    return resendSend(
-        $data['email'],
-        $data['name'],
-        $subject,
-        buildStatusUpdateHtml($data, $trackerUrl),
-        buildStatusUpdateText($data, $trackerUrl)
-    );
-}
-
-
-// ══════════════════════════════════════════════════════════════
-//  EMAIL TEMPLATES  (unchanged)
-// ══════════════════════════════════════════════════════════════
 
 // ── HTML email template ──────────────────────────────────────────────────────
 function buildConfirmationHtml(
@@ -180,6 +143,7 @@ function buildConfirmationHtml(
 ): string {
     $year = date('Y');
 
+    // Build receipt block (injected into heredoc below)
     if ($price !== null) {
         $noteText = $priceFrom ? 'Final price confirmed after technician assessment.' : 'Fixed price — payable on collection.';
         $priceLabel  = ($priceFrom ? 'From ' : '') . 'R' . number_format($price, 2);
@@ -463,6 +427,38 @@ TEXT;
 
 
 // ── Status update email ───────────────────────────────────────────────────────
+/**
+ * Send an order status update notification to the customer.
+ *
+ * @param  array $data  Keys: order_ref, name, email, service, shoe, status, tracker_url
+ * @return bool
+ */
+function sendStatusUpdateEmail(array $data): bool {
+    $mail = new PHPMailer(true);
+    try {
+        // 🔐 SMTP SETTINGS — credentials loaded from .env
+        smtpConfigure($mail);
+
+        $mail->setFrom(getenv('MAIL_USERNAME'), getenv('MAIL_FROM_NAME') ?: 'SoleMate');
+        $mail->addAddress($data['email'], $data['name']);
+
+        $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $trackerUrl = $data['tracker_url'] ?? ($protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']));
+
+        $mail->isHTML(true);
+        $mail->CharSet = 'UTF-8';
+        $mail->Subject = 'Order Update — ' . $data['order_ref'] . ' · SoleMate';
+        $mail->Body    = buildStatusUpdateHtml($data, $trackerUrl);
+        $mail->AltBody = buildStatusUpdateText($data, $trackerUrl);
+
+        return $mail->send();
+    } catch (Exception $e) {
+        error_log('Status mailer error: ' . $mail->ErrorInfo);
+        return false;
+    }
+}
+
 function buildStatusUpdateHtml(array $d, string $trackerUrl): string {
     $year    = date('Y');
     $name    = htmlspecialchars($d['name']      ?? '', ENT_QUOTES, 'UTF-8');
@@ -471,6 +467,7 @@ function buildStatusUpdateHtml(array $d, string $trackerUrl): string {
     $shoe    = htmlspecialchars($d['shoe']       ?? '', ENT_QUOTES, 'UTF-8');
     $status  = htmlspecialchars($d['status']    ?? '', ENT_QUOTES, 'UTF-8');
 
+    // Status-specific display config
     $statusConfig = [
         'Pending'       => ['emoji' => '⏳', 'color' => '#A0A0A0', 'msg' => 'Your booking is logged and awaiting drop-off confirmation.'],
         'Received'      => ['emoji' => '📥', 'color' => '#8B7355', 'msg' => 'We have received your shoes and they are in our care.'],
@@ -627,5 +624,212 @@ Questions? Reply to this email or call 081 234 5678.
 12 Florida Road, Berea, Durban. Mon–Sat 8 am–5 pm.
 
 © {$year} SoleMate Shoe Care, Durban.
+TEXT;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+//  sendCustomShoeConfirmation()
+//  Sends a rich confirmation email for a custom shoe order placed through
+//  the 3D customizer. Includes a colour swatch summary.
+// ══════════════════════════════════════════════════════════════════════════
+function sendCustomShoeConfirmation(array $data): bool {
+    $mail = new PHPMailer(true);
+    try {
+        smtpConfigure($mail);
+
+        $mail->setFrom(getenv('MAIL_USERNAME'), getenv('MAIL_FROM_NAME') ?: 'SoleMate');
+        $mail->addAddress($data['email'], $data['name']);
+
+        $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $trackerUrl = $protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
+
+        $mail->isHTML(true);
+        $mail->CharSet = 'UTF-8';
+        $mail->Subject = '🎨 Custom Shoe Order Confirmed — ' . $data['order_ref'] . ' · SoleMate';
+        $mail->Body    = buildCustomShoeHtml($data, $trackerUrl);
+        $mail->AltBody = buildCustomShoeText($data, $trackerUrl);
+
+        return $mail->send();
+    } catch (\Exception $e) {
+        error_log("Custom shoe mailer error: " . $mail->ErrorInfo);
+        return false;
+    }
+}
+
+function buildCustomShoeHtml(array $d, string $trackerUrl): string {
+    $year = date('Y');
+
+    // Build colour swatch rows
+    $partLabels = [
+        'laces'=>'Laces','mesh'=>'Body','caps'=>'Toe Cap',
+        'inner'=>'Inner','sole'=>'Sole','stripes'=>'Stripes',
+        'band'=>'Band','patch'=>'Patch',
+    ];
+    $swatchRows = '';
+    foreach (($d['colors'] ?? []) as $part => $hex) {
+        $label = $partLabels[$part] ?? ucfirst($part);
+        $swatchRows .= "
+        <tr>
+          <td style='padding:5px 0;font-size:13px;color:#555;'>$label</td>
+          <td style='padding:5px 0;text-align:right;'>
+            <span style='display:inline-flex;align-items:center;gap:8px;'>
+              <span style='display:inline-block;width:20px;height:20px;border-radius:50%;background:$hex;border:1px solid rgba(0,0,0,0.15);'></span>
+              <code style='font-size:12px;color:#888;'>$hex</code>
+            </span>
+          </td>
+        </tr>";
+    }
+
+    $courierRow = ($d['courier_fee'] > 0)
+        ? "<tr><td style='padding:4px 0;font-size:13px;color:#555;'>Courier fee</td><td style='text-align:right;font-size:13px;color:#555;'>R" . number_format($d['courier_fee'], 2) . "</td></tr>"
+        : '';
+
+    $addressRow = !empty($d['delivery_address'])
+        ? "<tr><th style='text-align:left;padding:7px 0 3px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#999;font-weight:600;'>Delivery address</th><td></td></tr>
+           <tr><td colspan='2' style='font-size:13px;color:#555;padding-bottom:6px;'>" . htmlspecialchars($d['delivery_address']) . "</td></tr>"
+        : '';
+
+    $notesRow = !empty($d['notes'])
+        ? "<tr><th style='text-align:left;padding:7px 0 3px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#999;font-weight:600;'>Notes</th><td></td></tr>
+           <tr><td colspan='2' style='font-size:13px;color:#555;padding-bottom:6px;'>" . htmlspecialchars($d['notes']) . "</td></tr>"
+        : '';
+
+    return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f0e8;font-family:'Georgia',serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8;padding:32px 16px;">
+    <tr><td align="center">
+      <table width="100%" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+        <!-- HEADER -->
+        <tr>
+          <td style="background:#1a0f08;padding:28px 32px;text-align:center;">
+            <div style="font-family:Georgia,serif;font-size:26px;color:#c8a97e;letter-spacing:1px;">Sole<span style="color:#D4561A;">Mate</span></div>
+            <div style="font-size:12px;color:rgba(200,169,126,0.6);margin-top:4px;letter-spacing:2px;text-transform:uppercase;">Custom Shoes Studio</div>
+          </td>
+        </tr>
+
+        <!-- HERO MESSAGE -->
+        <tr>
+          <td style="padding:28px 32px 16px;text-align:center;">
+            <div style="font-size:36px;margin-bottom:12px;">🎨</div>
+            <div style="font-family:Georgia,serif;font-size:22px;color:#1a0f08;margin-bottom:8px;">Your custom shoes are confirmed!</div>
+            <div style="font-size:14px;color:#777;line-height:1.6;">Hi {$d['name']}, we've received your bespoke design and our craftsmen are ready to bring it to life.</div>
+          </td>
+        </tr>
+
+        <!-- ORDER REF BADGE -->
+        <tr>
+          <td style="padding:0 32px 24px;">
+            <div style="background:#f5f0e8;border:1px dashed #c8a97e;border-radius:10px;padding:14px 20px;text-align:center;">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:6px;">Order Reference</div>
+              <div style="font-family:monospace;font-size:20px;font-weight:700;color:#D4561A;letter-spacing:1px;">{$d['order_ref']}</div>
+            </div>
+          </td>
+        </tr>
+
+        <!-- COLOUR DESIGN SUMMARY -->
+        <tr>
+          <td style="padding:0 32px 20px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:12px;font-family:Georgia,serif;">Your Colour Design</div>
+            <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ede8df;border-radius:10px;padding:12px 16px;background:#fdfbf8;">
+              <tr><td style="padding-bottom:4px;" colspan="2">
+                <div style="font-size:12px;color:#aaa;margin-bottom:8px;">Shoe size: <strong style="color:#555;">{$d['shoe_size']}</strong></div>
+              </td></tr>
+              $swatchRows
+            </table>
+          </td>
+        </tr>
+
+        <!-- ORDER DETAILS -->
+        <tr>
+          <td style="padding:0 32px 24px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:12px;font-family:Georgia,serif;">Order Details</div>
+            <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ede8df;border-radius:10px;padding:12px 16px;background:#fdfbf8;">
+              <tr>
+                <th style="text-align:left;padding:4px 0;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#999;font-weight:600;">Collection method</th>
+                <td style="text-align:right;font-size:13px;color:#555;">{$d['collection']}</td>
+              </tr>
+              <tr>
+                <th style="text-align:left;padding:4px 0;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#999;font-weight:600;">Ready by</th>
+                <td style="text-align:right;font-size:13px;color:#555;">{$d['drop_date']}</td>
+              </tr>
+              $addressRow
+              $notesRow
+            </table>
+          </td>
+        </tr>
+
+        <!-- PRICING -->
+        <tr>
+          <td style="padding:0 32px 24px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:12px;font-family:Georgia,serif;">Pricing</div>
+            <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ede8df;border-radius:10px;padding:12px 16px;background:#fdfbf8;">
+              <tr><td style="padding:4px 0;font-size:13px;color:#555;">Custom shoes (1 pair)</td><td style="text-align:right;font-size:13px;color:#555;">R{$d['price']}</td></tr>
+              $courierRow
+              <tr style="border-top:1px solid #ede8df;">
+                <td style="padding:8px 0 4px;font-size:15px;font-weight:700;color:#1a0f08;">Total</td>
+                <td style="text-align:right;padding:8px 0 4px;font-size:15px;font-weight:700;color:#D4561A;">R{$d['total']}</td>
+              </tr>
+              <tr><td colspan="2" style="font-size:11px;color:#aaa;padding-top:6px;">Payment due on collection or delivery.</td></tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- TRACK BUTTON -->
+        <tr>
+          <td style="padding:0 32px 28px;text-align:center;">
+            <a href="$trackerUrl" style="display:inline-block;background:#D4561A;color:#fff;text-decoration:none;padding:13px 32px;border-radius:8px;font-size:14px;font-weight:600;letter-spacing:.3px;">
+              Track My Order →
+            </a>
+            <div style="font-size:11px;color:#aaa;margin-top:10px;">Production takes 7–14 business days.</div>
+          </td>
+        </tr>
+
+        <!-- FOOTER -->
+        <tr>
+          <td style="background:#f5f0e8;padding:20px 32px;text-align:center;border-top:1px solid #ede8df;">
+            <div style="font-size:11px;color:#aaa;line-height:1.7;">
+              SoleMate Custom Shoes &nbsp;·&nbsp; Durban, South Africa<br>
+              Questions? Reply to this email or call us.<br>
+              © $year SoleMate. Crafted with ♥
+            </div>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+HTML;
+}
+
+function buildCustomShoeText(array $d, string $trackerUrl): string {
+    $colors = '';
+    foreach (($d['colors'] ?? []) as $part => $hex) {
+        $colors .= "  " . ucfirst($part) . ": $hex\n";
+    }
+    return <<<TEXT
+Hi {$d['name']},
+
+Your custom shoe order is confirmed!
+
+Order Reference: {$d['order_ref']}
+Shoe Size: {$d['shoe_size']}
+
+Your Design:
+$colors
+Collection: {$d['collection']}
+Ready by: {$d['drop_date']}
+Total: R{$d['total']} (payment due on collection/delivery)
+
+Track your order: $trackerUrl
+
+Production takes 7-14 business days.
+— SoleMate Team
 TEXT;
 }
