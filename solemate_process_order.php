@@ -1,8 +1,8 @@
 <?php
 // ═══════════════════════════════════════════════════════
 //  process_order.php  —  Handles booking form POST
-//  Inserts into orders table, emails confirmation,
-//  then redirects to the tracker page.
+//  Now routes through checkout → PayFast for payment.
+//  Falls back to direct booking if no payment tables exist.
 // ═══════════════════════════════════════════════════════
 require 'includes/solemate_database_connection.php';
 require 'includes/solemate_mailer.php';
@@ -11,6 +11,33 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Location: solemate_homepage.php');
     exit;
 }
+
+// ── Route through checkout if e-commerce is set up ──────
+try {
+    $ecomReady = (bool)$pdo->query("SELECT 1 FROM sys.objects WHERE object_id=OBJECT_ID(N'dbo.payments') AND type='U'")->fetchColumn();
+} catch (PDOException $e) { $ecomReady = false; }
+
+if ($ecomReady) {
+    // Forward the POST to checkout.php via session and redirect
+    session_start();
+    // checkout.php reads $_POST directly — just redirect with POST data preserved
+    // We bounce through a small forwarding form so POST data is intact
+    $fields = [];
+    foreach ($_POST as $k => $v) {
+        $k = htmlspecialchars($k, ENT_QUOTES, 'UTF-8');
+        $v = htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+        $fields[] = "<input type='hidden' name='{$k}' value='{$v}'>";
+    }
+    echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Redirecting…</title>';
+    echo '<style>body{font-family:sans-serif;background:#1A0F08;color:#C8A97E;display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:1rem}';
+    echo '.sp{width:36px;height:36px;border:3px solid rgba(200,169,126,.2);border-top-color:#C8A97E;border-radius:50%;animation:s .7s linear infinite}@keyframes s{to{transform:rotate(360deg)}}</style>';
+    echo '</head><body><div class="sp"></div><p>Loading checkout…</p>';
+    echo '<form id="f" action="solemate_checkout.php" method="POST">' . implode('', $fields) . '</form>';
+    echo '<script>document.getElementById("f").submit();</script></body></html>';
+    exit;
+}
+
+// ── Legacy path: direct booking (no payment tables) ─────
 
 function clean(string $val): string {
     return htmlspecialchars(trim($val), ENT_QUOTES, 'UTF-8');
@@ -46,9 +73,9 @@ if (!empty($errors)) {
 // Try to fetch the human-readable name from the services table.
 // Falls back to "Service #N" if the table doesn't exist yet.
 $serviceName = "Service #{$service_id}";
-$svcRow      = null;
+$svcRow      = null;   // ensure always defined
 try {
-    $svcStmt = $pdo->prepare("SELECT service_name AS name, price, price_from FROM services WHERE id = ? LIMIT 1");
+    $svcStmt = $pdo->prepare("SELECT TOP 1 service_name AS name, price, price_from FROM dbo.services WHERE id = ?");
     $svcStmt->execute([$service_id]);
     $svcRow = $svcStmt->fetch();
     if ($svcRow) {
@@ -62,7 +89,7 @@ try {
 function generateRef(PDO $pdo): string {
     do {
         $ref = 'SM-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(2)));
-        $chk = $pdo->prepare("SELECT id FROM orders WHERE order_ref = ?");
+        $chk = $pdo->prepare("SELECT id FROM dbo.booking WHERE order_ref = ?");
         $chk->execute([$ref]);
     } while ($chk->fetch());
     return $ref;
@@ -71,16 +98,23 @@ function generateRef(PDO $pdo): string {
 $order_ref = generateRef($pdo);
 
 // ── Insert order ────────────────────────────────────────
-$sql = "INSERT INTO orders 
+$sql = "INSERT INTO dbo.booking 
         (order_ref, customer_name, email, phone, service_id, shoe_type, drop_date, collection, notes, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-$status = in_array($collection, ['courier','home']) ? 'Pending' : 'Received';
+// For drop-off: only mark 'Received' if the drop-off date is today — a future date means
+// the customer hasn't arrived yet, so default to 'Pending'. All other collection methods
+// also start as 'Pending' (courier/home pickup hasn't happened yet either).
+$status = ($collection === 'drop-off' && strtotime($drop_date) <= strtotime('today'))
+    ? 'Received'
+    : 'Pending';
 
 $stmt = $pdo->prepare($sql);
 
 if ($stmt->execute([$order_ref, $name, $email, $phone, $service_id, $shoe, $drop_date, $collection, $notes, $status])) {
 
     // ── Send confirmation email ─────────────────────────
+    // Runs after the DB insert so the order is guaranteed to
+    // exist before the customer tries to track it.
     $mailSent = sendBookingConfirmation([
         'order_ref'  => $order_ref,
         'name'       => $name,
@@ -96,6 +130,11 @@ if ($stmt->execute([$order_ref, $name, $email, $phone, $service_id, $shoe, $drop
     if (!$mailSent) {
         error_log("Email failed for order: " . $order_ref);
     }
+    // A mail failure is intentionally non-fatal: the order is
+    // already saved, so we redirect to the tracker regardless.
+    // For stricter error surfacing, capture the return value:
+    //   $mailSent = sendBookingConfirmation([...]);
+    //   if (!$mailSent) { /* log or surface warning */ }
 
     header("Location: solemate_homepage.php?page=tracker&oid=" . urlencode($order_ref) . "&new=1");
     exit;
