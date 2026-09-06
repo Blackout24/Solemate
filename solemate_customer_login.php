@@ -42,39 +42,34 @@ if (!$rateLimit && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$email || !$password) {
         $error = 'Please enter your email address and password.';
     } else {
-        try {
-            $stmt = $pdo->prepare("SELECT TOP 1 * FROM dbo.customers WHERE email = ?");
-            $stmt->execute([$email]);
-            $user = $stmt->fetch();
+        $stmt = $pdo->prepare("SELECT TOP 1 * FROM dbo.customers WHERE email = ?");
+        $stmt->execute([$email]);
+        $user = $stmt->fetch();
 
-            if ($user && password_verify($password, $user['password_hash'])) {
-                // ✅ Success
-                loginCustomer($user);
-                $_SESSION['cust_login_attempts']    = 0;
-                $_SESSION['cust_login_locked_until'] = 0;
-
-                try {
-                    $pdo->prepare("UPDATE dbo.customers SET last_login = GETDATE() WHERE id = ?")
-                        ->execute([$user['id']]);
-                } catch (\PDOException $e) {
-                    error_log('[SoleMate login] last_login update failed: ' . $e->getMessage());
-                }
-
-                header('Location: ' . $redirectTo);
-                exit;
+        if ($user && password_verify($password, $user['password_hash'])) {
+            if (array_key_exists('is_active', $user) && !$user['is_active']) {
+                $error = 'This account has been deactivated. Please contact us for help.';
             } else {
-                $_SESSION['cust_login_attempts']++;
-                if ($_SESSION['cust_login_attempts'] >= 5) {
-                    $_SESSION['cust_login_locked_until'] = time() + 60;
-                    $error = 'Too many failed attempts. Locked for 60 seconds.';
-                } else {
-                    $remaining = 5 - $_SESSION['cust_login_attempts'];
-                    $error = "Incorrect email or password. {$remaining} attempt(s) remaining.";
-                }
+            // ✅ Success
+            loginCustomer($user);
+            $_SESSION['cust_login_attempts']    = 0;
+            $_SESSION['cust_login_locked_until'] = 0;
+
+            $pdo->prepare("UPDATE dbo.customers SET last_login = GETDATE() WHERE id = ?")
+                ->execute([$user['id']]);
+
+            header('Location: ' . $redirectTo);
+            exit;
             }
-        } catch (\PDOException $e) {
-            error_log('[SoleMate login] lookup failed: ' . $e->getMessage());
-            $error = 'We couldn\'t sign you in right now. Please try again in a moment.';
+        } else {
+            $_SESSION['cust_login_attempts']++;
+            if ($_SESSION['cust_login_attempts'] >= 5) {
+                $_SESSION['cust_login_locked_until'] = time() + 60;
+                $error = 'Too many failed attempts. Locked for 60 seconds.';
+            } else {
+                $remaining = 5 - $_SESSION['cust_login_attempts'];
+                $error = "Incorrect email or password. {$remaining} attempt(s) remaining.";
+            }
         }
     }
 }

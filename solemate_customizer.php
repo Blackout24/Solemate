@@ -1723,6 +1723,20 @@ updateLivePrice();
 </script>
 
 <style>
+/* ── PANEL SHELL ──
+   This panel is a fixed "3D studio" dark-glass surface (like the nav/hero/
+   canvas), independent of the site's light/dark toggle — its child controls
+   use translucent white-on-dark styling that needs a dark backdrop. */
+.customizer-panel{
+  background:linear-gradient(180deg,#1E140B,#140C06);
+  border:1px solid rgba(200,169,126,0.14);
+  border-radius:16px;
+  padding:0.35rem 0.85rem 0.85rem;
+}
+.customizer-panel .cp-card{background:rgba(255,255,255,0.04);border:1px solid rgba(200,169,126,0.14)}
+.customizer-panel .reset-btn{color:rgba(255,255,255,0.65);border-color:rgba(200,169,126,0.2)}
+.customizer-panel .reset-btn:hover{color:#D4561A;border-color:#D4561A}
+
 /* ── ACCORDION ── */
 .accordion{display:flex;flex-direction:column;gap:0;overflow-y:auto;flex:1;scrollbar-width:thin;scrollbar-color:rgba(200,169,126,0.25) transparent}
 .ac-section{border-bottom:1px solid rgba(200,169,126,0.12)}

@@ -261,6 +261,70 @@ if ($ecomReady) {
     }
 }
 
+// ── Load customer records ───────────────────────────────
+$customers    = [];
+$hasActiveCol = false;
+try {
+    $hasActiveCol = (bool)$pdo->query("SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.customers') AND name='is_active'")->fetchColumn();
+    $activeSelect = $hasActiveCol ? 'is_active' : '1 AS is_active';
+    $customers = $pdo->query("
+        SELECT c.id, c.first_name, c.last_name, c.email, c.phone, c.created_at, c.total_spent, c.$activeSelect,
+               (SELECT COUNT(*) FROM dbo.booking b WHERE b.email = c.email) AS booking_count
+        FROM dbo.customers c
+        ORDER BY c.created_at DESC
+    ")->fetchAll();
+} catch (PDOException $e) {}
+
+// ── Load payment records (for verification) ─────────────
+$payments = [];
+$hasVerifyCols = false;
+if ($hasPayments) {
+    try {
+        $hasVerifyCols = (bool)$pdo->query("SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.payments') AND name='verified_by'")->fetchColumn();
+        $payments = $pdo->query("SELECT * FROM dbo.payments ORDER BY created_at DESC")->fetchAll();
+    } catch (PDOException $e) {}
+}
+
+// ── Update / deactivate / reactivate a customer ─────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_customer'])) {
+    $cid   = (int)($_POST['customer_id'] ?? 0);
+    $fname = trim($_POST['first_name'] ?? '');
+    $lname = trim($_POST['last_name']  ?? '');
+    $email = trim($_POST['email']      ?? '');
+    $phone = trim($_POST['phone']      ?? '');
+    if ($cid > 0 && $fname !== '' && $email !== '') {
+        $pdo->prepare("UPDATE dbo.customers SET first_name=?, last_name=?, email=?, phone=? WHERE id=?")
+            ->execute([$fname, $lname, $email, $phone, $cid]);
+    }
+    header('Location: solemate_admin_dashboard.php?flash=customer_saved#customers'); exit;
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle_customer_active']) && $hasActiveCol) {
+    $cid = (int)($_POST['customer_id'] ?? 0);
+    $newState = (int)($_POST['new_state'] ?? 1);
+    if ($cid > 0) {
+        $pdo->prepare("UPDATE dbo.customers SET is_active=? WHERE id=?")->execute([$newState, $cid]);
+    }
+    header('Location: solemate_admin_dashboard.php?flash=' . ($newState ? 'customer_reactivated' : 'customer_deactivated') . '#customers'); exit;
+}
+
+// ── Verify / reject a payment ────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify_payment']) && $hasVerifyCols) {
+    $cartRef = trim($_POST['cart_ref'] ?? '');
+    if ($cartRef !== '') {
+        $result = completePaymentManually($pdo, $cartRef, $_SESSION['admin_username'] ?? 'admin');
+        header('Location: solemate_admin_dashboard.php?flash=' . ($result['ok'] ? 'payment_verified' : 'payment_verify_failed') . '#payments'); exit;
+    }
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reject_payment']) && $hasVerifyCols) {
+    $cartRef = trim($_POST['cart_ref'] ?? '');
+    $notes   = trim($_POST['admin_notes'] ?? '');
+    if ($cartRef !== '') {
+        $pdo->prepare("UPDATE dbo.payments SET status=N'failed', verified_by=?, verified_at=GETDATE(), admin_notes=? WHERE cart_ref=? AND status<>N'complete'")
+            ->execute([$_SESSION['admin_username'] ?? 'admin', $notes ?: null, $cartRef]);
+    }
+    header('Location: solemate_admin_dashboard.php?flash=payment_rejected#payments'); exit;
+}
+
 // ── Resolve flash message from GET param (PRG pattern) ──
 $flashMap = [
     'status_updated' => ['success', 'Order #' . ((int)($_GET['order'] ?? 0)) . ' updated to <strong>' . htmlspecialchars($_GET['status'] ?? '', ENT_QUOTES, 'UTF-8') . '</strong>.'],
@@ -282,6 +346,12 @@ $flashMap = [
     'inv_deleted'    => ['error',   'Inventory item removed.'],
     'settings_saved' => ['success', 'Feature settings saved.'],
     'settings_migration_needed' => ['error', 'Run solemate_settings_migration.sql first.'],
+    'customer_saved'         => ['success', 'Customer details updated.'],
+    'customer_deactivated'   => ['success', 'Customer account deactivated.'],
+    'customer_reactivated'   => ['success', 'Customer account reactivated.'],
+    'payment_verified'       => ['success', 'Payment verified and marked complete.'],
+    'payment_verify_failed'  => ['error',   'Could not verify that payment — it may already be complete.'],
+    'payment_rejected'       => ['success', 'Payment marked as failed.'],
 ];
 $flashKey = $_GET['flash'] ?? '';
 if (isset($flashMap[$flashKey])) {
@@ -582,6 +652,12 @@ tr:hover td{background:var(--cream)}
 }
 .save-btn:hover{opacity:0.87}
 
+.modal-overlay{position:fixed;inset:0;background:rgba(26,15,8,.55);z-index:400;display:none;align-items:center;justify-content:center;padding:1.5rem}
+.modal-overlay.open{display:flex}
+.modal{background:#fff;border-radius:16px;padding:1.75rem;width:100%;max-width:460px;position:relative}
+.modal-close{position:absolute;top:14px;right:14px;background:none;border:none;font-size:16px;cursor:pointer;color:var(--muted)}
+.modal-title{font-family:'Playfair Display',serif;font-size:17px;font-weight:700;margin-bottom:1.1rem}
+
 /* ── INFO GRID ── */
 .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.25rem}
 .info-card{background:#fff;border-radius:11px;padding:1.25rem;border:1px solid rgba(107,66,38,0.1)}
@@ -635,6 +711,8 @@ tr:hover td{background:var(--cream)}
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('booking',this)">All Booking (<?= $total ?>)</button>
     <button class="tab-btn" onclick="switchTab('custom',this)">🎨 Custom Shoes (<?= $customTotal ?>)</button>
+    <button class="tab-btn" onclick="switchTab('customers',this)">👥 Customers (<?= count($customers) ?>)</button>
+    <button class="tab-btn" onclick="switchTab('payments',this)">💳 Payments</button>
     <button class="tab-btn" onclick="switchTab('services',this)">Services</button>
     <button class="tab-btn" onclick="switchTab('settings',this)">Settings</button>
     <button class="tab-btn" onclick="switchTab('backup',this)">Backup</button>
@@ -829,6 +907,162 @@ tr:hover td{background:var(--cream)}
       </div>
     <?php endif; ?>
   </div><!-- /tab-custom -->
+
+  <!-- ══ CUSTOMERS TAB ═══════════════════════════════════ -->
+  <div class="tab-panel" id="tab-customers">
+
+    <?php if (!$hasActiveCol): ?>
+    <div style="background:#fff8f6;border:1.5px solid rgba(212,86,26,0.3);border-radius:10px;padding:1rem 1.25rem;font-size:13px;color:#8B2200;margin-bottom:1.25rem">
+      ⚠️ Run <strong>solemate_customer_payments_migration.sql</strong> in SSMS to enable deactivating accounts.
+    </div>
+    <?php endif; ?>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.25rem">
+      <div class="stat-card"><div class="stat-n"><?= count($customers) ?></div><div class="stat-l">Total customers</div></div>
+      <div class="stat-card"><div class="stat-n" style="color:var(--success)"><?= count(array_filter($customers, fn($c) => !empty($c['is_active']))) ?></div><div class="stat-l">Active</div></div>
+      <div class="stat-card"><div class="stat-n" style="color:#c0392b"><?= count(array_filter($customers, fn($c) => empty($c['is_active']))) ?></div><div class="stat-l">Deactivated</div></div>
+    </div>
+
+    <input type="text" id="custSearch" placeholder="Search by name or email…" class="inv-input"
+           style="max-width:320px;margin-bottom:1rem" onkeyup="filterCustomers()">
+
+    <div style="overflow-x:auto">
+      <table class="inv-table" id="customerTable">
+        <thead><tr>
+          <th>Name</th><th>Email</th><th>Phone</th><th>Joined</th>
+          <th style="text-align:right">Bookings</th><th style="text-align:right">Total spent</th>
+          <th>Status</th><th>Actions</th>
+        </tr></thead>
+        <tbody>
+        <?php foreach ($customers as $c): $active = !empty($c['is_active']); ?>
+        <tr>
+          <td style="font-weight:500"><?= eh($c['first_name'].' '.$c['last_name']) ?></td>
+          <td style="font-size:12px;color:var(--muted)"><?= eh($c['email']) ?></td>
+          <td style="font-size:12px;color:var(--muted)"><?= eh($c['phone'] ?? '') ?></td>
+          <td style="font-size:12px;color:var(--muted)"><?= eh(date('d M Y', strtotime($c['created_at']))) ?></td>
+          <td style="text-align:right"><?= (int)$c['booking_count'] ?></td>
+          <td style="text-align:right">R<?= number_format((float)($c['total_spent'] ?? 0), 2) ?></td>
+          <td>
+            <?php if ($active): ?>
+              <span class="inv-badge inv-badge-ok">Active</span>
+            <?php else: ?>
+              <span class="inv-badge inv-badge-out">Deactivated</span>
+            <?php endif; ?>
+          </td>
+          <td>
+            <div style="display:flex;align-items:center;gap:.4rem">
+              <button type="button" class="inv-cancel" style="padding:5px 10px"
+                onclick="openCustomerModal(<?= (int)$c['id'] ?>,<?= htmlspecialchars(json_encode($c['first_name']), ENT_QUOTES) ?>,<?= htmlspecialchars(json_encode($c['last_name']), ENT_QUOTES) ?>,<?= htmlspecialchars(json_encode($c['email']), ENT_QUOTES) ?>,<?= htmlspecialchars(json_encode($c['phone'] ?? ''), ENT_QUOTES) ?>)">Edit</button>
+              <?php if ($hasActiveCol): ?>
+              <form method="POST" onsubmit="return confirm('<?= $active ? 'Deactivate' : 'Reactivate' ?> this account?')">
+                <input type="hidden" name="customer_id" value="<?= (int)$c['id'] ?>">
+                <input type="hidden" name="new_state" value="<?= $active ? 0 : 1 ?>">
+                <button type="submit" name="toggle_customer_active"
+                  style="background:none;border:1px solid rgba(212,86,26,0.25);color:var(--accent);padding:5px 10px;border-radius:6px;font-size:11px;cursor:pointer">
+                  <?= $active ? 'Deactivate' : 'Reactivate' ?>
+                </button>
+              </form>
+              <?php endif; ?>
+            </div>
+          </td>
+        </tr>
+        <?php endforeach; ?>
+        <?php if (empty($customers)): ?>
+        <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:2rem">No customers yet.</td></tr>
+        <?php endif; ?>
+        </tbody>
+      </table>
+    </div>
+  </div><!-- /tab-customers -->
+
+  <!-- ══ PAYMENTS TAB ═════════════════════════════════════ -->
+  <div class="tab-panel" id="tab-payments">
+
+    <?php if (!$hasPayments): ?>
+    <div style="background:#fff8f6;border:1.5px solid rgba(212,86,26,0.3);border-radius:10px;padding:1rem 1.25rem;font-size:13px;color:#8B2200;margin-bottom:1.25rem">
+      ⚠️ The <code>dbo.payments</code> table does not exist yet.
+    </div>
+    <?php else: ?>
+
+    <?php if (!$hasVerifyCols): ?>
+    <div style="background:#fff8f6;border:1.5px solid rgba(212,86,26,0.3);border-radius:10px;padding:1rem 1.25rem;font-size:13px;color:#8B2200;margin-bottom:1.25rem">
+      ⚠️ Run <strong>solemate_customer_payments_migration.sql</strong> in SSMS to enable verifying EFTs and other transactions.
+    </div>
+    <?php endif; ?>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.25rem">
+      <div class="stat-card"><div class="stat-n" style="color:var(--success)">R<?= number_format($payStats['revenue'],0) ?></div><div class="stat-l">Verified revenue</div></div>
+      <div class="stat-card"><div class="stat-n"><?= $payStats['total'] ?></div><div class="stat-l">Completed payments</div></div>
+      <div class="stat-card"><div class="stat-n" style="color:var(--accent)"><?= $payStats['pending'] ?></div><div class="stat-l">Awaiting verification</div></div>
+    </div>
+
+    <div style="overflow-x:auto">
+      <table class="inv-table">
+        <thead><tr>
+          <th>Cart ref</th><th>Customer</th><th style="text-align:right">Amount</th>
+          <th>Method</th><th>Status</th><th>Date</th><th>Actions</th>
+        </tr></thead>
+        <tbody>
+        <?php foreach ($payments as $p): ?>
+        <tr>
+          <td style="font-family:monospace;font-size:12px"><?= eh($p['cart_ref']) ?></td>
+          <td style="font-size:12px;color:var(--muted)"><?= eh($p['customer_email']) ?></td>
+          <td style="text-align:right;font-family:'Playfair Display',serif">R<?= number_format((float)$p['amount_gross'],2) ?></td>
+          <td style="font-size:12px;text-transform:uppercase;color:var(--muted)"><?= eh($p['payment_method'] ?? '—') ?></td>
+          <td>
+            <?php if ($p['status']==='complete'): ?>
+              <span class="inv-badge inv-badge-ok">Complete</span>
+              <?php if (!empty($p['verified_by'])): ?>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px">Verified by <?= eh($p['verified_by']) ?></div>
+              <?php endif; ?>
+            <?php elseif ($p['status']==='pending'): ?>
+              <span class="inv-badge inv-badge-low">Pending</span>
+            <?php else: ?>
+              <span class="inv-badge inv-badge-out"><?= eh(ucfirst($p['status'])) ?></span>
+            <?php endif; ?>
+          </td>
+          <td style="font-size:12px;color:var(--muted)"><?= eh(date('d M Y', strtotime($p['created_at']))) ?></td>
+          <td>
+            <?php if ($hasVerifyCols && $p['status']==='pending'): ?>
+            <div style="display:flex;gap:.4rem">
+              <form method="POST" onsubmit="return confirm('Mark this payment as verified and complete? This will finalise the linked booking.')">
+                <input type="hidden" name="cart_ref" value="<?= eh($p['cart_ref']) ?>">
+                <button type="submit" name="verify_payment" class="save-btn" style="padding:5px 12px;font-size:11px">Verify</button>
+              </form>
+              <form method="POST" onsubmit="return confirm('Mark this payment as failed?')">
+                <input type="hidden" name="cart_ref" value="<?= eh($p['cart_ref']) ?>">
+                <button type="submit" name="reject_payment"
+                  style="background:none;border:1px solid rgba(212,86,26,0.25);color:var(--accent);padding:5px 10px;border-radius:6px;font-size:11px;cursor:pointer">Reject</button>
+              </form>
+            </div>
+            <?php endif; ?>
+          </td>
+        </tr>
+        <?php endforeach; ?>
+        <?php if (empty($payments)): ?>
+        <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:2rem">No payments yet.</td></tr>
+        <?php endif; ?>
+        </tbody>
+      </table>
+    </div>
+    <?php endif; ?>
+  </div><!-- /tab-payments -->
+
+  <!-- Edit customer modal -->
+  <div class="modal-overlay" id="customerModal">
+    <div class="modal" style="max-width:420px">
+      <button class="modal-close" onclick="closeCustomerModal()">✕</button>
+      <div class="modal-title">Edit customer</div>
+      <form method="POST">
+        <input type="hidden" name="customer_id" id="cmCustomerId">
+        <div class="fg"><label>First name</label><input type="text" name="first_name" id="cmFirstName" required></div>
+        <div class="fg"><label>Last name</label><input type="text" name="last_name" id="cmLastName"></div>
+        <div class="fg"><label>Email</label><input type="email" name="email" id="cmEmail" required></div>
+        <div class="fg"><label>Phone</label><input type="text" name="phone" id="cmPhone"></div>
+        <button type="submit" name="save_customer" class="save-btn" style="width:100%;padding:11px">Save changes</button>
+      </form>
+    </div>
+  </div>
 
   <!-- ══ SERVICES TAB ════════════════════════════════════ -->
   <div class="tab-panel" id="tab-services">
@@ -1540,9 +1774,28 @@ function filterTable() {
   });
 }
 
+function filterCustomers() {
+  const q = document.getElementById('custSearch').value.toLowerCase();
+  document.querySelectorAll('#customerTable tbody tr').forEach(row => {
+    row.style.display = (!q || row.textContent.toLowerCase().includes(q)) ? '' : 'none';
+  });
+}
+
+function openCustomerModal(id, firstName, lastName, email, phone) {
+  document.getElementById('cmCustomerId').value = id;
+  document.getElementById('cmFirstName').value  = firstName;
+  document.getElementById('cmLastName').value   = lastName;
+  document.getElementById('cmEmail').value      = email;
+  document.getElementById('cmPhone').value      = phone;
+  document.getElementById('customerModal').classList.add('open');
+}
+function closeCustomerModal() { document.getElementById('customerModal').classList.remove('open'); }
+document.getElementById('customerModal').addEventListener('click', function(e) { if (e.target === this) closeCustomerModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCustomerModal(); });
+
 // Restore active tab from hash
 const hash = window.location.hash.replace('#','');
-if (['booking','custom','services','settings','backup','analytics','inventory','ecommerce'].includes(hash)) {
+if (['booking','custom','customers','payments','services','settings','backup','analytics','inventory','ecommerce'].includes(hash)) {
   const btn = document.querySelector(`.tab-btn[onclick*="${hash}"]`);
   if (btn) switchTab(hash, btn);
 }
