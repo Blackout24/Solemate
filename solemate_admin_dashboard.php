@@ -306,6 +306,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle_customer_activ
     }
     header('Location: solemate_admin_dashboard.php?flash=' . ($newState ? 'customer_reactivated' : 'customer_deactivated') . '#customers'); exit;
 }
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_customer'])) {
+    $cid = (int)($_POST['customer_id'] ?? 0);
+    if ($cid > 0) {
+        try {
+            $pdo->prepare("DELETE FROM dbo.customers WHERE id=?")->execute([$cid]);
+            header('Location: solemate_admin_dashboard.php?flash=customer_deleted#customers'); exit;
+        } catch (PDOException $e) {
+            header('Location: solemate_admin_dashboard.php?flash=customer_delete_blocked#customers'); exit;
+        }
+    }
+    header('Location: solemate_admin_dashboard.php?flash=customer_delete_blocked#customers'); exit;
+}
 
 // ── Verify / reject a payment ────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify_payment']) && $hasVerifyCols) {
@@ -349,6 +361,8 @@ $flashMap = [
     'customer_saved'         => ['success', 'Customer details updated.'],
     'customer_deactivated'   => ['success', 'Customer account deactivated.'],
     'customer_reactivated'   => ['success', 'Customer account reactivated.'],
+    'customer_deleted'       => ['error',   'Customer account permanently deleted.'],
+    'customer_delete_blocked'=> ['error',   'Could not delete — this customer has referral history. Deactivate the account instead.'],
     'payment_verified'       => ['success', 'Payment verified and marked complete.'],
     'payment_verify_failed'  => ['error',   'Could not verify that payment — it may already be complete.'],
     'payment_rejected'       => ['success', 'Payment marked as failed.'],
@@ -963,6 +977,10 @@ tr:hover td{background:var(--cream)}
                 </button>
               </form>
               <?php endif; ?>
+              <form method="POST" onsubmit="return confirm('Permanently delete <?= eh(addslashes($c['first_name'].' '.$c['last_name'])) ?>? This cannot be undone.')">
+                <input type="hidden" name="customer_id" value="<?= (int)$c['id'] ?>">
+                <button type="submit" name="delete_customer" class="del-btn" title="Delete customer">✕</button>
+              </form>
             </div>
           </td>
         </tr>

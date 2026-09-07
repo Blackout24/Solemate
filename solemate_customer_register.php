@@ -35,11 +35,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'First name is required.';
     elseif (mb_strlen($old['first_name']) > 60)
         $errors[] = 'First name is too long (max 60 characters).';
+    elseif (!preg_match('/^[\p{L}\s\'-]+$/u', $old['first_name']))
+        $errors[] = 'First name may only contain letters.';
 
     if (!$old['last_name'])
         $errors[] = 'Last name is required.';
     elseif (mb_strlen($old['last_name']) > 60)
         $errors[] = 'Last name is too long (max 60 characters).';
+    elseif (!preg_match('/^[\p{L}\s\'-]+$/u', $old['last_name']))
+        $errors[] = 'Last name may only contain letters.';
+
+    $phoneDigits = preg_replace('/\D+/', '', $old['phone']);
+    if (!$old['phone'])
+        $errors[] = 'Phone number is required.';
+    elseif (strlen($phoneDigits) !== 10)
+        $errors[] = 'Phone number must be exactly 10 digits.';
+    else
+        $old['phone'] = $phoneDigits;
 
     if (!$old['email'])
         $errors[] = 'Email address is required.';
@@ -295,12 +307,14 @@ body::after{
         <label for="first_name">First name *</label>
         <input type="text" id="first_name" name="first_name" autocomplete="given-name"
                placeholder="Siya" required maxlength="60"
+               pattern="[A-Za-z\s'\-]+" title="Letters only"
                value="<?= e($old['first_name'] ?? '') ?>">
       </div>
       <div class="fg">
         <label for="last_name">Last name *</label>
         <input type="text" id="last_name" name="last_name" autocomplete="family-name"
                placeholder="Khoza" required maxlength="60"
+               pattern="[A-Za-z\s'\-]+" title="Letters only"
                value="<?= e($old['last_name'] ?? '') ?>">
       </div>
     </div>
@@ -313,10 +327,12 @@ body::after{
     </div>
 
     <div class="fg">
-      <label for="phone">Phone number <span style="color:rgba(107,66,38,.4);font-weight:400">(optional)</span></label>
-      <input type="tel" id="phone" name="phone" autocomplete="tel"
-             placeholder="082 123 4567" maxlength="30"
+      <label for="phone">Phone number *</label>
+      <input type="tel" id="phone" name="phone" autocomplete="tel" inputmode="numeric"
+             placeholder="0821234567" required maxlength="10"
+             pattern="[0-9]{10}" title="Exactly 10 digits"
              value="<?= e($old['phone'] ?? '') ?>">
+      <div class="hint">10 digits, numbers only.</div>
     </div>
 
     <div class="fg">
@@ -366,6 +382,17 @@ body::after{
 </div>
 
 <script>
+// Strip disallowed characters as the user types
+document.getElementById('first_name').addEventListener('input', function () {
+  this.value = this.value.replace(/[^A-Za-z\s'-]/g, '');
+});
+document.getElementById('last_name').addEventListener('input', function () {
+  this.value = this.value.replace(/[^A-Za-z\s'-]/g, '');
+});
+document.getElementById('phone').addEventListener('input', function () {
+  this.value = this.value.replace(/\D/g, '').slice(0, 10);
+});
+
 function togglePw(fieldId, btn) {
   const f = document.getElementById(fieldId);
   f.type = f.type === 'password' ? 'text' : 'password';
