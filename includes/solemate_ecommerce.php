@@ -425,3 +425,93 @@ function getReferralStats(PDO $pdo, int $customerId): array {
         'next_reward_at' => $nextAt,
     ];
 }
+// ─────────────────────────────────────────────────────────
+//  MANUAL PAYMENT VERIFICATION (EFT / other transactions)
+// ─────────────────────────────────────────────────────────
+
+/**
+ * Manually verify + complete a payment that's stuck as 'pending'
+ * (typically a bank EFT that never fired PayFast's ITN webhook).
+ * Mirrors the completion logic in solemate_payment_status.php's
+ * sandbox fallback, but callable from the admin dashboard for any
+ * pending cart_ref. Marks the payment complete, updates the
+ * matching booking(s), activates any gift card purchased in the
+ * same cart, and awards loyalty / completes referrals (respecting
+ * the site's feature toggles). Idempotent: re-verifying an
+ * already-complete payment is a no-op that returns ok=false.
+ *
+ * Returns ['ok'=>bool, 'message'=>string]
+ */
+function completePaymentManually(PDO $pdo, string $cartRef, string $verifiedBy): array {
+    $stmt = $pdo->prepare("SELECT * FROM dbo.payments WHERE cart_ref=?");
+    $stmt->execute([$cartRef]);
+    $row = $stmt->fetch();
+
+    if (!$row) return ['ok' => false, 'message' => 'Payment not found.'];
+    if ($row['status'] === 'complete') return ['ok' => false, 'message' => 'This payment is already marked complete.'];
+
+    $amountPaid = (float)$row['amount_gross'];
+
+    $pdo->prepare("
+        UPDATE dbo.payments
+        SET status=N'complete', payment_method=COALESCE(payment_method, N'eft'),
+            paid_at=GETDATE(), verified_by=?, verified_at=GETDATE()
+        WHERE cart_ref=?
+    ")->execute([$verifiedBy, $cartRef]);
+
+    // Mark booking(s) paid — same status logic as the automated flow
+    $bkMeta = $pdo->prepare("
+        SELECT b.drop_date, b.collection, s.service_key
+        FROM dbo.booking b
+        LEFT JOIN dbo.services s ON b.service_id = s.id
+        WHERE b.cart_ref = ?
+    ");
+    $bkMeta->execute([$cartRef]);
+    $bkMeta     = $bkMeta->fetch();
+    $dropDate   = $bkMeta['drop_date']   ?? null;
+    $colMethod  = $bkMeta['collection']  ?? '';
+    $serviceKey = $bkMeta['service_key'] ?? '';
+
+    if ($serviceKey === 'custom-shoes') {
+        $bkStatus = 'Design confirmed';
+    } else {
+        // Pending only while the date is still days ahead (any collection method)
+        $bkStatus = ($dropDate && strtotime($dropDate) > strtotime('today'))
+            ? 'Pending'
+            : 'Received';
+    }
+
+    $pdo->prepare("
+        UPDATE dbo.booking
+        SET payment_status = N'paid', status = ?, amount_paid = ?
+        WHERE cart_ref = ?
+    ")->execute([$bkStatus, $amountPaid, $cartRef]);
+
+    // Activate any gift card purchased in this payment
+    $pdo->prepare("UPDATE dbo.gift_cards SET is_active = 1 WHERE cart_ref = ?")->execute([$cartRef]);
+
+    // Award loyalty points + complete referral (respecting feature toggles)
+    $custRow = $pdo->prepare("SELECT id, loyalty_points FROM dbo.customers WHERE email = ?");
+    $custRow->execute([$row['customer_email']]);
+    $cust = $custRow->fetch();
+    $settings = getSiteSettings($pdo);
+    if ($cust && $amountPaid > 0) {
+        if ($settings['loyalty']) {
+            $earned = loyaltyPointsEarnedWithTier($amountPaid, (int)$cust['loyalty_points']);
+            awardLoyaltyPoints($pdo, (int)$cust['id'], $earned, $cartRef, "Earned on payment — R{$amountPaid}");
+        }
+        $pdo->prepare("UPDATE dbo.customers SET total_spent=total_spent+? WHERE id=?")
+            ->execute([$amountPaid, (int)$cust['id']]);
+        if ($settings['referrals']) {
+            $bookingCount = $pdo->prepare("SELECT COUNT(*) FROM dbo.booking WHERE email=? AND payment_status=N'paid'");
+            $bookingCount->execute([$row['customer_email']]);
+            if ((int)$bookingCount->fetchColumn() === 1) {
+                try { completeReferral($pdo, (int)$cust['id']); } catch (\Throwable $e) {
+                    error_log('[SoleMate referral] ' . $e->getMessage());
+                }
+            }
+        }
+    }
+
+    return ['ok' => true, 'message' => "Payment {$cartRef} verified and marked complete."];
+}

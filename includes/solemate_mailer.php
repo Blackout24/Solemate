@@ -106,7 +106,8 @@ function sendBookingConfirmation($data) {
             $data['collection'] ?? 'drop-off',
             $trackerUrl,
             $data['price']      ?? null,
-            $data['price_from'] ?? false
+            $data['price_from'] ?? false,
+            $data['delivery_address'] ?? ''
         );
         $mail->AltBody = buildConfirmationText(
             $data['name'],
@@ -117,7 +118,8 @@ function sendBookingConfirmation($data) {
             $data['collection'] ?? 'drop-off',
             $trackerUrl,
             $data['price']      ?? null,
-            $data['price_from'] ?? false
+            $data['price_from'] ?? false,
+            $data['delivery_address'] ?? ''
         );
 
         return $mail->send();
@@ -139,9 +141,21 @@ function buildConfirmationHtml(
     string $collection,
     string $trackerUrl,
     ?float $price = null,
-    bool   $priceFrom = false
+    bool   $priceFrom = false,
+    string $address = ''
 ): string {
     $year = date('Y');
+
+    $addressRowHtml = $address !== '' ? <<<ADDR
+
+              <tr>
+                <td style="padding:14px 18px;border-top:1px solid #EDE4D8;">
+                  <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#8B7355;">Collection address</span><br>
+                  <span style="font-size:14px;font-weight:600;color:#1A0F08;">{$address}</span>
+                </td>
+              </tr>
+ADDR
+        : '';
 
     // Build receipt block (injected into heredoc below)
     if ($price !== null) {
@@ -281,7 +295,7 @@ RECEIPT;
                   <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#8B7355;">Collection method</span><br>
                   <span style="font-size:14px;font-weight:600;color:#1A0F08;">{$collection}</span>
                 </td>
-              </tr>
+              </tr>{$addressRowHtml}
             </table>
           </td>
         </tr>
@@ -380,7 +394,8 @@ function buildConfirmationText(
     string $collection,
     string $trackerUrl,
     ?float $price = null,
-    bool   $priceFrom = false
+    bool   $priceFrom = false,
+    string $address = ''
 ): string {
     $year = date('Y');
     $receiptText = '';
@@ -389,6 +404,7 @@ function buildConfirmationText(
         $priceNote    = $priceFrom ? 'Final price confirmed after technician assessment.' : 'Fixed price — payable on collection.';
         $receiptText  = "\nRECEIPT\n───────\nService : {$service}\nTotal   : {$priceLabel}\n{$priceNote}\n";
     }
+    $addressLine = $address !== '' ? "Collection address: {$address}\n" : '';
     return <<<TEXT
 SOLEMATE SHOE CARE — BOOKING CONFIRMED
 =======================================
@@ -407,7 +423,7 @@ Service          : {$service}
 Shoe / item      : {$shoe}
 Drop-off date    : {$dropDate}
 Collection method: {$collection}
-{$receiptText}
+{$addressLine}{$receiptText}
 Track your order online:
 {$trackerUrl}
 
