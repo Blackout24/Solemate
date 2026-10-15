@@ -24,8 +24,31 @@ if ($row && $row['status'] === 'complete') {
 if ($row && pfConfig()['sandbox']) {
     require_once 'includes/solemate_ecommerce.php';
     require_once 'includes/solemate_mailer.php';
+    require_once 'includes/solemate_customer_mailer.php';
 
     $result = completePaymentManually($pdo, $cartRef, 'sandbox-auto');
+
+    // Email the gift card to its recipient (BCC the sender), if this
+    // payment is for a gift card purchase
+    try {
+        $gcStmt = $pdo->prepare("SELECT * FROM dbo.gift_cards WHERE cart_ref=? AND is_active=1");
+        $gcStmt->execute([$cartRef]);
+        $gcRow = $gcStmt->fetch();
+        if ($gcRow && !empty($gcRow['recipient_email'])) {
+            sendGiftCardEmail([
+                'recipient_email' => $gcRow['recipient_email'],
+                'recipient_name'  => $gcRow['recipient_name'] ?? '',
+                'sender_name'     => $gcRow['purchased_by']   ?? '',
+                'sender_email'    => $row['customer_email'],
+                'code'            => $gcRow['code'],
+                'balance'         => (float)$gcRow['balance'],
+                'expires_at'      => $gcRow['expires_at']     ?? null,
+                'message'         => $gcRow['message']        ?? '',
+            ]);
+        }
+    } catch (Exception $e) {
+        error_log('[SoleMate sandbox gift card mailer] ' . $e->getMessage());
+    }
 
     // Send booking confirmation email
     try {
@@ -49,6 +72,7 @@ if ($row && pfConfig()['sandbox']) {
                                     ? date('d M Y', strtotime($booking['drop_date']))
                                     : 'TBC',
                 'collection' => ucfirst($booking['collection'] ?? 'drop-off'),
+                'delivery_address' => $booking['delivery_address'] ?? '',
                 'price'      => (float)$row['amount_gross'],
                 'price_from' => false,
             ]);

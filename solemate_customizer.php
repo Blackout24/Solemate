@@ -1643,6 +1643,7 @@ function updateModalPrice() {
 }
 
 document.getElementById('open-buy-modal').addEventListener('click', () => {
+  if (!requireAuthOrGate('buy custom shoes')) return;
   // Build price breakdown so PHP can reconstruct the exact total
   const priceBreakdown = [];
   priceBreakdown.push({ label: 'Custom shoe (1 pair)', cost: 1200 });

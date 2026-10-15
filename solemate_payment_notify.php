@@ -92,10 +92,11 @@ if ($isCustomShoe) {
     // Payment confirms the production order — always 'Design confirmed'
     $bkStatus = 'Design confirmed';
 } else {
-    // Standard booking: drop-off today → Received, future/courier/home → Pending
-    $bkStatus = ($colMethod === 'drop-off' && $dropDate && strtotime($dropDate) <= strtotime('today'))
-        ? 'Received'
-        : 'Pending';
+    // Standard booking (drop-off, courier, home): Pending only while the date is
+    // still days ahead; today or earlier → Received
+    $bkStatus = ($dropDate && strtotime($dropDate) > strtotime('today'))
+        ? 'Pending'
+        : 'Received';
 }
 
 $pdo->prepare("
@@ -214,6 +215,7 @@ try {
                 'shoe'       => $booking['shoe_type'] ?? '',
                 'drop_date'  => $booking['drop_date'] ? date('d M Y', strtotime($booking['drop_date'])) : 'TBC',
                 'collection' => ucfirst($booking['collection']),
+                'delivery_address' => $booking['delivery_address'] ?? '',
                 'price'      => $amountPaid,
                 'price_from' => false,
             ]);

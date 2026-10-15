@@ -62,19 +62,42 @@ $pdo->prepare("
 
 // ── 2. Create booking record (pending payment) ───────────
 $status = 'Pending';
-$pdo->prepare("
-    INSERT INTO dbo.booking
-        (order_ref,cart_ref,customer_name,email,phone,
-         service_id,shoe_type,drop_date,collection,notes,status,
-         payment_status,customization_data)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,N'pending',?)
-")->execute([
-    $orderRef, $cartRef,
-    trim($fn.' '.$ln), $email, $phone,
-    $item['service_id'], $item['shoe_type'], $item['drop_date'],
-    $item['collection'], $item['notes'], $status,
-    $item['customization_data'] ?? null,
-]);
+
+// delivery_address is a newer column — guard against DBs not yet migrated
+$hasAddressCol = false;
+try {
+    $hasAddressCol = (bool)$pdo->query("SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.booking') AND name='delivery_address'")->fetchColumn();
+} catch (\PDOException $e) {}
+
+if ($hasAddressCol) {
+    $pdo->prepare("
+        INSERT INTO dbo.booking
+            (order_ref,cart_ref,customer_name,email,phone,
+             service_id,shoe_type,drop_date,collection,delivery_address,notes,status,
+             payment_status,customization_data)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,N'pending',?)
+    ")->execute([
+        $orderRef, $cartRef,
+        trim($fn.' '.$ln), $email, $phone,
+        $item['service_id'], $item['shoe_type'], $item['drop_date'],
+        $item['collection'], $item['delivery_address'] ?? '', $item['notes'], $status,
+        $item['customization_data'] ?? null,
+    ]);
+} else {
+    $pdo->prepare("
+        INSERT INTO dbo.booking
+            (order_ref,cart_ref,customer_name,email,phone,
+             service_id,shoe_type,drop_date,collection,notes,status,
+             payment_status,customization_data)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,N'pending',?)
+    ")->execute([
+        $orderRef, $cartRef,
+        trim($fn.' '.$ln), $email, $phone,
+        $item['service_id'], $item['shoe_type'], $item['drop_date'],
+        $item['collection'], $item['notes'], $status,
+        $item['customization_data'] ?? null,
+    ]);
+}
 
 // ── 3. Store cart_ref in session for return page ─────────
 $_SESSION['sm_cart_ref'] = $cartRef;

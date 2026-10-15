@@ -33,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['service_id'])) {
         'shoe_type'    => trim($_POST['shoe_type']  ?? ''),
         'drop_date'    => trim($_POST['drop_date']   ?? ''),
         'collection'   => trim($_POST['collection']  ?? 'drop-off'),
+        'delivery_address' => trim($_POST['delivery_address'] ?? ''),
         'notes'        => trim($_POST['notes']       ?? ''),
         'pairs'        => max(1,(int)($_POST['pairs'] ?? 1)),
         'surname'      => trim($_POST['surname']     ?? ''),
@@ -341,6 +342,9 @@ input[type=range]{width:100%;accent-color:var(--accent)}
           <?= $item['shoe_type'] ? e($item['shoe_type']).'<br>' : '' ?>
           <?= $item['drop_date'] ? 'Drop-off: '.date('d M Y',strtotime($item['drop_date'])).'<br>' : '' ?>
           Collection: <?= ucfirst(e($item['collection'])) ?>
+          <?php if (!empty($item['delivery_address'])): ?>
+          <br><span style="font-size:11px;opacity:.7"><?= e($item['delivery_address']) ?></span>
+          <?php endif; ?>
         </div>
       <?php endif; ?>
 

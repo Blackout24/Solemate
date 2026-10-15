@@ -34,6 +34,14 @@ if ($page === 'giftcard' && $settings['gift_cards'] && $_SERVER['REQUEST_METHOD'
 
 $services = $pdo->query("SELECT * FROM dbo.services ORDER BY sort_order")->fetchAll();
 
+// Prefill the booking form for a logged-in customer
+$bookingCustomer = null;
+if ($page === 'booking' && isCustomerLoggedIn()) {
+    $bcStmt = $pdo->prepare("SELECT first_name, last_name, email, phone FROM dbo.customers WHERE id = ?");
+    $bcStmt->execute([getCustomerId()]);
+    $bookingCustomer = $bcStmt->fetch() ?: null;
+}
+
 $trackResult = null;
 $trackError  = null;
 $newBooking  = isset($_GET['new']) && $_GET['new'] === '1';
@@ -152,15 +160,15 @@ function e(string $val): string {
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --cream:#FAF7F2;--tan:#C8A97E;--brown:#6B4226;--dark:#1A0F08;
-  --accent:#D4561A;--light:#E8D5BE;--muted:#8B7355;--success:#2D6A4F;
-  --text:#1A0F08;--card-bg:#fff;--border-rgb:107,66,38;
+  --cream:#F8F3EC;--tan:#B98A54;--brown:#5C3820;--dark:#1A0F08;
+  --accent:#C1440E;--accent-rgb:193,68,14;--light:#EFDFC5;--muted:#7C6650;--success:#2D6A4F;
+  --text:#241508;--card-bg:#FFFDFB;--border-rgb:92,56,32;
   color-scheme:light;
 }
 [data-theme="dark"]{
-  --cream:#17110A;--tan:#E3C79C;--brown:#D3A97A;
-  --accent:#EC7A47;--light:#3A2A1C;--muted:#C2AD97;--success:#59B98A;
-  --text:#F3EDE4;--card-bg:#241B12;--border-rgb:255,255,255;
+  --cream:#15100B;--tan:#DDBB8C;--brown:#C99568;
+  --accent:#E8763B;--accent-rgb:232,118,59;--light:#2B2015;--muted:#B3A08C;--success:#5CC49A;
+  --text:#F4EBDD;--card-bg:#1F1712;--border-rgb:224,203,178;
   color-scheme:dark;
 }
 body{font-family:'DM Sans',system-ui,sans-serif;background:var(--cream);color:var(--text);min-height:100vh;transition:background 0.2s,color 0.2s}
@@ -174,7 +182,7 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
 .nav-tabs{display:flex;gap:3px;flex-wrap:wrap}
 .nav-tab{color:rgba(255,255,255,0.5);font-size:13px;padding:6px 13px;border-radius:6px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;transition:all 0.15s}
 .nav-tab:hover{color:var(--tan)}
-.nav-tab.active{background:rgba(200,169,126,0.15);color:var(--tan)}
+.nav-tab.active{background:rgba(var(--accent-rgb),0.15);color:var(--tan)}
 .admin-link{color:rgba(255,255,255,0.28);font-size:12px;text-decoration:none;margin-left:0.5rem;border-left:1px solid rgba(255,255,255,0.1);padding-left:0.75rem}
 .admin-link:hover{color:var(--tan)}
 /* Wishlist heart button on service cards */
@@ -182,13 +190,13 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
   backdrop-filter:blur(4px);border:none;color:#fff;font-size:17px;width:34px;height:34px;
   border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;
   transition:all .18s;line-height:1}
-.wl-btn:hover{background:rgba(212,86,26,0.7);transform:scale(1.12)}
-.wl-btn.wl-active{background:rgba(212,86,26,0.85);color:#fff}
+.wl-btn:hover{background:rgba(var(--accent-rgb),0.7);transform:scale(1.12)}
+.wl-btn.wl-active{background:rgba(var(--accent-rgb),0.85);color:#fff}
 
 .hero{background:var(--dark);padding:4rem 2rem 3.5rem;text-align:center;position:relative;overflow:hidden}
 .hero img,.hero-logo{max-width:220px;width:100%;height:auto;display:block;margin:0 auto;position:relative;z-index:2;}
-.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 70% 55% at 50% -10%,rgba(200,169,126,0.1) 0%,transparent 65%);pointer-events:none}
-.hero-badge{display:inline-block;background:rgba(200,169,126,0.12);border:1px solid rgba(200,169,126,0.28);color:var(--tan);font-size:11px;padding:4px 14px;border-radius:20px;margin-bottom:1.25rem;text-transform:uppercase;letter-spacing:1px}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 70% 55% at 50% -10%,rgba(var(--accent-rgb),0.1) 0%,transparent 65%);pointer-events:none}
+.hero-badge{display:inline-block;background:rgba(var(--accent-rgb),0.12);border:1px solid rgba(var(--accent-rgb),0.28);color:var(--tan);font-size:11px;padding:4px 14px;border-radius:20px;margin-bottom:1.25rem;text-transform:uppercase;letter-spacing:1px}
 .hero h1{font-family:'Playfair Display',serif;font-size:clamp(2rem,5vw,3.2rem);font-weight:700;color:#fff;line-height:1.18;margin-bottom:0.875rem}
 .hero h1 em{font-style:italic;color:var(--tan)}
 .hero p{font-size:15px;color:rgba(255,255,255,0.52);line-height:1.7;margin-bottom:2.25rem;max-width:420px;margin-left:auto;margin-right:auto}
@@ -253,12 +261,12 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
 
 .steps-wrap{position:relative;display:flex;justify-content:space-between;margin:1.5rem 0 1.125rem;border-radius:8px;}
 .steps-track{position:absolute;top:13px;left:0;right:0;height:3px;background:var(--light)}
-.steps-fill{position:absolute;top:13px;left:0;height:3px;border-radius:3px;background:linear-gradient(90deg,transparent,var(--accent),#ff9a5c,var(--accent),transparent);max-width:100%;overflow:hidden;background-size:200% 100%;box-shadow:0 0 6px var(--accent),0 0 12px var(--accent),0 0 20px rgba(212,86,26,0.7);animation:electricFlow 2s linear infinite}
+.steps-fill{position:absolute;top:13px;left:0;height:3px;border-radius:3px;background:linear-gradient(90deg,transparent,var(--accent),#ff9a5c,var(--accent),transparent);max-width:100%;overflow:hidden;background-size:200% 100%;box-shadow:0 0 6px var(--accent),0 0 12px var(--accent),0 0 20px rgba(var(--accent-rgb),0.7);animation:electricFlow 2s linear infinite}
 .steps-fill::after{content:'';position:absolute;inset:0;background:linear-gradient(120deg,transparent,rgba(255,255,255,0.9),transparent);animation:electricPulse 1.5s infinite}
 .step{display:flex;flex-direction:column;align-items:center;gap:5px;z-index:2;flex:1}
 .step-dot{width:27px;height:27px;border-radius:50%;border:2px solid var(--light);background:var(--cream);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted);font-weight:500}
-.step.done .step-dot{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 0 8px var(--accent),0 0 16px var(--accent),0 0 22px rgba(212,86,26,0.8)}
-.step.active .step-dot{border-color:var(--accent);color:var(--accent);background:var(--card-bg);box-shadow:0 0 10px var(--accent),0 0 20px rgba(212,86,26,0.7);animation:pulseDot 1.2s infinite}
+.step.done .step-dot{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 0 8px var(--accent),0 0 16px var(--accent),0 0 22px rgba(var(--accent-rgb),0.8)}
+.step.active .step-dot{border-color:var(--accent);color:var(--accent);background:var(--card-bg);box-shadow:0 0 10px var(--accent),0 0 20px rgba(var(--accent-rgb),0.7);animation:pulseDot 1.2s infinite}
 .step-lbl{font-size:10px;color:var(--muted);text-align:center;max-width:58px;line-height:1.3}
 .step.done .step-lbl,.step.active .step-lbl{color:var(--text);font-weight:500}
 .order-box{background:var(--cream);border-radius:9px;padding:0.9rem 1.125rem;font-size:13px;color:var(--muted);line-height:2;border-left:3px solid var(--accent)}
@@ -305,7 +313,7 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
 .shop-card{background:var(--card-bg);border:1px solid rgba(var(--border-rgb),0.12);border-radius:14px;overflow:hidden;transition:transform 0.18s,box-shadow 0.18s}
 .shop-card:hover{transform:translateY(-3px);box-shadow:0 10px 28px rgba(var(--border-rgb),0.13)}
 .shop-card-header{background:var(--dark);padding:1.125rem 1.375rem;display:flex;align-items:center;justify-content:space-between}
-.shop-badge{background:rgba(200,169,126,0.15);border:1px solid rgba(200,169,126,0.3);color:var(--tan);font-size:10px;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:1px}
+.shop-badge{background:rgba(var(--accent-rgb),0.15);border:1px solid rgba(var(--accent-rgb),0.3);color:var(--tan);font-size:10px;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:1px}
 .shop-name{font-family:'Playfair Display',serif;font-size:16px;color:#fff;font-weight:700}
 .shop-body{padding:1.375rem}
 .shop-detail{display:flex;align-items:flex-start;gap:10px;margin-bottom:0.875rem}
@@ -320,9 +328,9 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
 .shop-dir-btn:hover{opacity:0.87}
 .shop-call-btn{background:transparent;border:1px solid rgba(var(--border-rgb),0.2);color:var(--text);padding:9px 14px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;transition:all 0.15s;flex-shrink:0}
 .shop-call-btn:hover{border-color:var(--brown);color:var(--brown)}
-.flagship-tag{display:inline-flex;align-items:center;gap:5px;background:rgba(212,86,26,0.1);border:1px solid rgba(212,86,26,0.25);color:var(--accent);font-size:10px;padding:3px 10px;border-radius:20px;margin-bottom:0.75rem;text-transform:uppercase;letter-spacing:0.8px}
+.flagship-tag{display:inline-flex;align-items:center;gap:5px;background:rgba(var(--accent-rgb),0.1);border:1px solid rgba(var(--accent-rgb),0.25);color:var(--accent);font-size:10px;padding:3px 10px;border-radius:20px;margin-bottom:0.75rem;text-transform:uppercase;letter-spacing:0.8px}
 .team-blurb{background:linear-gradient(135deg,var(--dark) 0%,#2d1a0e 100%);border-radius:14px;padding:2.5rem;text-align:center;margin-bottom:3rem;position:relative;overflow:hidden}
-.team-blurb::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 110%,rgba(200,169,126,0.08) 0%,transparent 65%);pointer-events:none}
+.team-blurb::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 110%,rgba(var(--accent-rgb),0.08) 0%,transparent 65%);pointer-events:none}
 .team-blurb-title{font-family:'Playfair Display',serif;font-size:1.5rem;color:#fff;margin-bottom:0.75rem}
 .team-blurb p{font-size:13px;color:rgba(255,255,255,0.5);line-height:1.8;max-width:480px;margin:0 auto 1.5rem}
 
@@ -433,14 +441,14 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
 
 /* ── 3D Customizer ─────────────────────────────────────────────── */
 .nav-tab.customizer-tab{
-  background:linear-gradient(135deg,rgba(212,86,26,0.18),rgba(200,169,126,0.12));
+  background:linear-gradient(135deg,rgba(var(--accent-rgb),0.18),rgba(var(--accent-rgb),0.12));
   color:var(--tan);
-  border:1px solid rgba(200,169,126,0.22);
+  border:1px solid rgba(var(--accent-rgb),0.22);
   font-weight:500;
   letter-spacing:0.3px;
 }
 .nav-tab.customizer-tab:hover,.nav-tab.customizer-tab.active{
-  background:linear-gradient(135deg,rgba(212,86,26,0.35),rgba(200,169,126,0.2));
+  background:linear-gradient(135deg,rgba(var(--accent-rgb),0.35),rgba(var(--accent-rgb),0.2));
   color:#fff;
   border-color:var(--tan);
 }
@@ -462,7 +470,7 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
   overflow:hidden;
   background:radial-gradient(ellipse at 40% 35%,#2c1a0e 0%,#0d0704 70%);
   box-shadow:0 8px 40px rgba(0,0,0,0.45);
-  border:1px solid rgba(200,169,126,0.1);
+  border:1px solid rgba(var(--accent-rgb),0.1);
 }
 #shoe-canvas{width:100%;height:100%;display:block;cursor:grab}
 #shoe-canvas:active{cursor:grabbing}
@@ -480,12 +488,12 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
 }
 .loading-ring{
   width:44px;height:44px;border-radius:50%;
-  border:3px solid rgba(200,169,126,0.15);
+  border:3px solid rgba(var(--accent-rgb),0.15);
   border-top-color:var(--tan);
   animation:spin 0.9s linear infinite;
 }
 @keyframes spin{to{transform:rotate(360deg)}}
-.loading-text{color:rgba(200,169,126,0.6);font-size:12px;letter-spacing:1px;text-transform:uppercase}
+.loading-text{color:rgba(var(--accent-rgb),0.6);font-size:12px;letter-spacing:1px;text-transform:uppercase}
 
 .customizer-panel{
   display:flex;flex-direction:column;gap:1rem;
@@ -511,7 +519,7 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
   white-space:nowrap;
 }
 .part-btn:hover{border-color:var(--accent);background:var(--card-bg)}
-.part-btn.active{border-color:var(--accent);background:rgba(212,86,26,0.06);color:var(--accent)}
+.part-btn.active{border-color:var(--accent);background:rgba(var(--accent-rgb),0.06);color:var(--accent)}
 .part-color-dot{
   width:18px;height:18px;border-radius:50%;flex-shrink:0;
   border:2px solid rgba(0,0,0,0.12);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3);
@@ -526,7 +534,7 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
   box-shadow:0 1px 4px rgba(0,0,0,0.2);
 }
 .swatch:hover{transform:scale(1.12);border-color:rgba(0,0,0,0.25)}
-.swatch.selected{border-color:var(--accent);box-shadow:0 0 0 2px rgba(212,86,26,0.35)}
+.swatch.selected{border-color:var(--accent);box-shadow:0 0 0 2px rgba(var(--accent-rgb),0.35)}
 .color-hex-row{display:flex;align-items:center;gap:8px}
 .color-hex-input{
   flex:1;border:1px solid rgba(var(--border-rgb),0.2);border-radius:6px;
@@ -536,14 +544,14 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
 .color-hex-input:focus{border-color:var(--accent)}
 .native-picker{width:32px;height:32px;border:none;cursor:pointer;background:none;padding:0}
 
-.preset-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0.625rem}
+.preset-grid{display:grid;repeat(3,1fr);gap:0.625rem}
 .preset-btn{
   border-radius:10px;border:1.5px solid rgba(var(--border-rgb),0.12);
   overflow:hidden;cursor:pointer;transition:all 0.2s;background:none;padding:0;
   font-family:inherit;
 }
 .preset-btn:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.12)}
-.preset-btn.active-preset{border-color:var(--accent);box-shadow:0 0 0 2px rgba(212,86,26,0.25)}
+.preset-btn.active-preset{border-color:var(--accent);box-shadow:0 0 0 2px rgba(var(--accent-rgb),0.25)}
 .preset-swatch-row{display:flex;height:20px}
 .preset-swatch{flex:1;height:100%}
 .preset-name{font-size:10px;padding:4px;text-align:center;background:var(--card-bg);color:var(--text);font-weight:500}
@@ -562,7 +570,7 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
   color:#fff;border:none;padding:13px;border-radius:10px;
   font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;
   transition:opacity 0.15s;text-decoration:none;display:block;text-align:center;
-  box-shadow:0 4px 16px rgba(212,86,26,0.35);margin-top:auto;
+  box-shadow:0 4px 16px rgba(var(--accent-rgb),0.35);margin-top:auto;
 }
 .cta-book-btn:hover{opacity:0.88}
 .reset-btn{
@@ -586,11 +594,11 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
 .gal-half.before img{filter:grayscale(30%) sepia(40%) brightness(0.6) contrast(1.2) saturate(0.6)}
 .gal-half.before.raw img{filter:none}
 .gal-label{position:absolute;top:7px;left:7px;background:rgba(0,0,0,.55);color:#fff;font-size:9px;letter-spacing:.8px;text-transform:uppercase;padding:3px 7px;border-radius:4px;z-index:2}
-.gal-label.after-lbl{background:rgba(212,86,26,.82)}
+.gal-label.after-lbl{background:rgba(var(--accent-rgb),.82)}
 .gal-divider{position:absolute;left:50%;top:0;bottom:0;width:2px;background:rgba(255,255,255,.82);z-index:3;display:flex;align-items:center;justify-content:center}
 .gal-divider-handle{width:22px;height:22px;border-radius:50%;background:var(--card-bg);box-shadow:0 2px 8px rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text);font-weight:700;flex-shrink:0}
 .gal-info{padding:.9rem 1.125rem 1rem}
-.gal-tag{display:inline-block;background:rgba(212,86,26,.1);color:var(--accent);font-size:10px;font-weight:500;padding:3px 10px;border-radius:12px;margin-bottom:.45rem}
+.gal-tag{display:inline-block;background:rgba(var(--accent-rgb),.1);color:var(--accent);font-size:10px;font-weight:500;padding:3px 10px;border-radius:12px;margin-bottom:.45rem}
 .gal-name{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;margin-bottom:.2rem;line-height:1.3}
 .gal-stars{color:#F4A623;font-size:12px;letter-spacing:1px;margin-bottom:.3rem}
 .gal-desc{font-size:11px;color:var(--muted);line-height:1.55;margin-bottom:.625rem}
@@ -604,10 +612,10 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
 @media(max-width:700px){.gc-layout{grid-template-columns:1fr}}
 .gc-preview{background:linear-gradient(135deg,var(--dark) 0%,#3d1f0e 100%);border-radius:18px;padding:1.75rem;aspect-ratio:1.586/1;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 12px 40px rgba(0,0,0,.18);margin-bottom:1.25rem}
 .gc-preview-logo{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;color:var(--tan)}.gc-preview-logo span{color:var(--accent)}
-.gc-preview-tag{font-size:10px;color:rgba(200,169,126,.45);letter-spacing:.6px;margin-top:3px}
+.gc-preview-tag{font-size:10px;color:rgba(var(--accent-rgb),.45);letter-spacing:.6px;margin-top:3px}
 .gc-preview-amt{font-family:'Playfair Display',serif;font-size:2.2rem;font-weight:700;color:#fff;text-align:right}
-.gc-preview-code{font-family:monospace;font-size:12px;color:rgba(200,169,126,.55);letter-spacing:2px}
-.gc-preview-valid{font-size:10px;color:rgba(200,169,126,.38);text-align:right}
+.gc-preview-code{font-family:monospace;font-size:12px;color:rgba(var(--accent-rgb),.55);letter-spacing:2px}
+.gc-preview-valid{font-size:10px;color:rgba(var(--accent-rgb),.38);text-align:right}
 .gc-perks{font-size:13px;color:var(--muted);line-height:2}
 .gc-card{background:var(--card-bg);border-radius:14px;padding:1.5rem;border:1px solid rgba(var(--border-rgb),.08);box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:1.25rem}
 .gc-card h3{font-family:'Playfair Display',serif;font-size:1.05rem;margin-bottom:1rem}
@@ -617,7 +625,7 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
 .gc-fg{margin-bottom:.8rem}
 .gc-fg label{display:block;font-size:11px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
 .gc-fg input,.gc-fg textarea{width:100%;border:1.5px solid rgba(var(--border-rgb),.18);border-radius:9px;padding:9px 13px;font-size:13px;font-family:inherit;background:var(--cream);color:var(--text);outline:none;transition:border-color .15s;resize:vertical}
-.gc-fg input:focus,.gc-fg textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(212,86,26,.1)}
+.gc-fg input:focus,.gc-fg textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(var(--accent-rgb),.1)}
 .gc-fg input::placeholder,.gc-fg textarea::placeholder{color:rgba(var(--border-rgb),.32)}
 .gc-divider{font-family:'Playfair Display',serif;font-size:.85rem;font-weight:700;margin:.9rem 0 .7rem;padding-bottom:.5rem;border-bottom:1px solid rgba(var(--border-rgb),.1)}
 .gc-submit{width:100%;background:var(--accent);color:#fff;border:none;padding:12px;border-radius:9px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;transition:opacity .15s;margin-top:.5rem}
@@ -627,6 +635,21 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
 .gc-balance-err{background:#fff8f6;border:1.5px solid rgba(212,86,26,.25);color:#8B2200}
 [data-theme="dark"] .alert-error,[data-theme="dark"] .not-found,[data-theme="dark"] .gc-balance-err{background:rgba(212,86,26,0.14);color:#FF9A6B}
 [data-theme="dark"] .alert-success,[data-theme="dark"] .gc-balance-ok{background:rgba(45,106,79,0.2);color:#8FE0B8}
+/* ── Auth gate modal (guest tries to book / buy) ─────────── */
+.ag-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2000;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s;padding:1rem}
+.ag-overlay.active{opacity:1;pointer-events:all}
+.ag-modal{background:var(--card-bg);border-radius:16px;padding:2rem 1.75rem;max-width:360px;width:100%;text-align:center;position:relative;transform:translateY(10px);transition:transform .2s;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.ag-overlay.active .ag-modal{transform:translateY(0)}
+.ag-close{position:absolute;top:12px;right:12px;background:none;border:none;font-size:16px;color:var(--muted);cursor:pointer;line-height:1}
+.ag-icon{font-size:2rem;margin-bottom:.5rem}
+.ag-title{font-family:'Playfair Display',serif;font-size:1.15rem;font-weight:700;margin-bottom:.5rem}
+.ag-sub{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:1.4rem}
+.ag-btn{display:block;width:100%;padding:11px;border-radius:9px;font-size:14px;font-weight:500;font-family:inherit;text-decoration:none;cursor:pointer;transition:opacity .15s;box-sizing:border-box}
+.ag-btn+.ag-btn{margin-top:.6rem}
+.ag-btn-primary{background:var(--accent);color:#fff;border:none}
+.ag-btn-primary:hover{opacity:.88}
+.ag-btn-secondary{background:none;border:1.5px solid rgba(var(--border-rgb),.22);color:var(--text)}
+.ag-btn-secondary:hover{background:rgba(var(--border-rgb),.06)}
 </style>
 </head>
 <body>
@@ -793,11 +816,11 @@ $fallback_vis = ['bg'=>'linear-gradient(145deg,#6b4226,#1a0f08)', 'h'=>220, 'dar
   <div class="form-ttl">Your booking details</div>
   <form action="solemate_process_order.php" method="POST">
     <div class="fg-row">
-      <div class="fg"><label>First name *</label><input type="text" name="customer_name" placeholder="First name" required></div>
-      <div class="fg"><label>Surname</label><input type="text" name="surname" placeholder="Surname"></div>
+      <div class="fg"><label>First name *</label><input type="text" name="customer_name" placeholder="First name" value="<?= e($bookingCustomer['first_name'] ?? '') ?>" required></div>
+      <div class="fg"><label>Surname</label><input type="text" name="surname" placeholder="Surname" value="<?= e($bookingCustomer['last_name'] ?? '') ?>"></div>
     </div>
-    <div class="fg"><label>Email *</label><input type="email" name="email" placeholder="example@email.com" required></div>
-    <div class="fg"><label>Phone</label><input type="tel" name="phone" placeholder="+27 82 000 0000"></div>
+    <div class="fg"><label>Email *</label><input type="email" name="email" placeholder="example@email.com" value="<?= e($bookingCustomer['email'] ?? '') ?>" required></div>
+    <div class="fg"><label>Phone</label><input type="tel" name="phone" placeholder="+27 82 000 0000" value="<?= e($bookingCustomer['phone'] ?? '') ?>"></div>
     <div class="fg">
       <label>Service *</label>
       <select name="service_id" required>
@@ -832,17 +855,33 @@ $fallback_vis = ['bg'=>'linear-gradient(145deg,#6b4226,#1a0f08)', 'h'=>220, 'dar
       <div class="fg"><label>Drop-off date *</label><input type="date" name="drop_date" min="<?= date('Y-m-d') ?>" required></div>
       <div class="fg">
         <label>Collection method</label>
-        <select name="collection">
+        <select name="collection" id="collectionSelect" onchange="toggleAddressField()">
           <option value="drop-off">Drop-off (free)</option>
           <option value="courier">Courier (+R80)</option>
           <option value="home">Home collection (+R120)</option>
         </select>
       </div>
     </div>
+    <div class="fg" id="addressField" style="display:none">
+      <label>Collection address *</label>
+      <textarea name="delivery_address" id="deliveryAddress" rows="2" placeholder="Street, suburb, city, postal code"></textarea>
+    </div>
     <div class="fg"><label>Notes</label><textarea name="notes" rows="2" placeholder="Any damage, stains, or special instructions..."></textarea></div>
-    <button type="submit" class="sub-btn">Confirm booking →</button>
+    <button type="submit" class="sub-btn" onclick="return requireAuthOrGate('book a service')">Confirm booking →</button>
   </form>
 </div>
+<script>
+function toggleAddressField() {
+  var sel  = document.getElementById('collectionSelect');
+  var wrap = document.getElementById('addressField');
+  var inp  = document.getElementById('deliveryAddress');
+  var needsAddress = sel.value === 'courier' || sel.value === 'home';
+  wrap.style.display = needsAddress ? 'block' : 'none';
+  if (needsAddress) { inp.setAttribute('required', 'required'); }
+  else { inp.removeAttribute('required'); }
+}
+toggleAddressField();
+</script>
 
 <?php elseif ($page === 'tracker'): ?>
 <div class="sec-label">Order status</div>
@@ -871,25 +910,19 @@ $fallback_vis = ['bg'=>'linear-gradient(145deg,#6b4226,#1a0f08)', 'h'=>220, 'dar
     $o    = $trackResult;
     $isCustom  = (($o['service_key'] ?? '') === 'custom-shoes'
                   || strpos($o['shoe_type'] ?? '', 'Custom') === 0);
-    $isDropOff = ($o['collection'] === 'drop-off');
     if ($isCustom) {
         // Custom shoe manufacturing pipeline
-        $statusStep = $isDropOff
-            ? ['Design confirmed'=>1,'Pattern cut'=>2,'Stitching'=>3,'Sole bonding'=>4,'Finishing'=>5,'Dispatched'=>6]
-            : ['Pending'=>1,'Design confirmed'=>2,'Pattern cut'=>3,'Stitching'=>4,'Sole bonding'=>5,'Finishing'=>6,'Dispatched'=>7];
-        $stepLabels = $isDropOff
-            ? ['Design confirmed','Pattern cut','Stitching','Sole bonding','Finishing','Dispatched']
-            : ['Pending','Design confirmed','Pattern cut','Stitching','Sole bonding','Finishing','Dispatched'];
+        $stepLabels = ['Pending','Design confirmed','Pattern cut','Stitching','Sole bonding','Finishing','Dispatched'];
     } else {
-        $statusStep = $isDropOff
-            ? ['Received'=>1,'Assessment'=>2,'In service'=>3,'Quality check'=>4,'Ready'=>5]
-            : ['Pending'=>1,'Received'=>2,'Assessment'=>3,'In service'=>4,'Quality check'=>5,'Ready'=>6];
-        $stepLabels = $isDropOff
-            ? ['Received','Assessment','In service','Quality check','Ready']
-            : ['Pending','Received','Assessment','In service','Quality check','Ready'];
+        $stepLabels = ['Pending','Received','Assessment','In service','Quality check','Ready'];
     }
+    // Pending only shows while the order is still days ahead (or literally Pending)
+    $isFuture    = !empty($o['drop_date']) && strtotime($o['drop_date']) > strtotime('today');
+    $showPending = ($o['status'] === 'Pending') || (!$isCustom && $isFuture);
+    if (!$showPending) array_shift($stepLabels);
     $totalSteps = count($stepLabels);
-    $step = $statusStep[$o['status']] ?? 1;
+    $idx  = array_search($o['status'], $stepLabels, true);
+    $step = ($idx === false) ? 1 : $idx + 1;
     $pct  = ($totalSteps > 1) ? round(($step - 1) / ($totalSteps - 1) * 100) : 0;
     $collectionLabel = ['drop-off'=>'Drop-off','courier'=>'Courier','home'=>'Home collection'][$o['collection']] ?? $o['collection'];
   ?>
@@ -1565,8 +1598,8 @@ function gcUpdatePreview(amt) {
 </div>
 
 <?php elseif ($page === 'customizer'): ?>
-<div style="background:var(--dark);padding:2rem 1.75rem 1.5rem;text-align:center;border-bottom:1px solid rgba(200,169,126,0.1)">
-  <div style="display:inline-block;background:rgba(200,169,126,0.12);border:1px solid rgba(200,169,126,0.28);color:var(--tan);font-size:11px;padding:4px 14px;border-radius:20px;margin-bottom:0.75rem;text-transform:uppercase;letter-spacing:1px">3D Shoe Studio</div>
+<div style="background:var(--dark);padding:2rem 1.75rem 1.5rem;text-align:center;border-bottom:1px solid rgba(var(--accent-rgb),0.1)">
+  <div style="display:inline-block;background:rgba(var(--accent-rgb),0.12);border:1px solid rgba(var(--accent-rgb),0.28);color:var(--tan);font-size:11px;padding:4px 14px;border-radius:20px;margin-bottom:0.75rem;text-transform:uppercase;letter-spacing:1px">3D Shoe Studio</div>
   <h1 style="font-family:'Playfair Display',serif;font-size:clamp(1.6rem,4vw,2.4rem);font-weight:700;color:#fff;line-height:1.2;margin-bottom:0.5rem">Design your <em style="color:var(--tan);font-style:italic">perfect pair</em></h1>
   <p style="font-size:14px;color:rgba(255,255,255,0.48);max-width:420px;margin:0 auto">Rotate, zoom, and customise every part of the shoe. Then book your service with your chosen look.</p>
 </div>
@@ -1585,7 +1618,7 @@ function gcUpdatePreview(amt) {
 
 <footer>
   <span class="footer-logo">SoleMate</span>
-  123 Florida Road, Morningside, Durban &nbsp;·&nbsp; 031 555 0123 &nbsp;·&nbsp; hello@solemate.co.za<br>
+  123 Florida Road, Morningside, Durban &nbsp;·&nbsp; 031 555 0123 &nbsp;·&nbsp; storesolemate585@gmail.com<br>
   Mon–Fri 8am–6pm &nbsp;·&nbsp; Sat 9am–2pm<br>
   <span style="font-size:11px;color:rgba(255,255,255,0.28)">&copy; <?= date('Y') ?> SoleMate. All rights reserved.</span>
 </footer>
@@ -1791,7 +1824,7 @@ function gcUpdatePreview(amt) {
 
 
 (function () {
-  var sparkColor  = '#C8A97E';
+  var sparkColor  = '#D4561A';
   var sparkSize   = 10;
   var sparkRadius = 15;
   var sparkCount  = 8;
@@ -1907,6 +1940,40 @@ async function toggleWishlist(btn, serviceId) {
   btn.disabled = false;
   btn.style.opacity = '';
 }
+</script>
+
+<!-- ── Auth gate modal: shown when a guest tries to book / buy ── -->
+<div class="ag-overlay" id="authGateOverlay">
+  <div class="ag-modal">
+    <button class="ag-close" onclick="closeAuthGate()" aria-label="Close">✕</button>
+    <div class="ag-icon">👤</div>
+    <div class="ag-title">Sign in to continue</div>
+    <p class="ag-sub">You'll need a SoleMate account to <span id="authGateAction">continue</span>. Do you already have one?</p>
+    <a href="#" id="authGateLoginLink" class="ag-btn ag-btn-primary">Sign in</a>
+    <a href="#" id="authGateRegisterLink" class="ag-btn ag-btn-secondary">I need to register</a>
+  </div>
+</div>
+<script>
+function requireAuthOrGate(actionLabel) {
+  const loggedIn = <?= isCustomerLoggedIn() ? 'true' : 'false' ?>;
+  if (!loggedIn) { openAuthGate(actionLabel); return false; }
+  return true;
+}
+function openAuthGate(actionLabel) {
+  document.getElementById('authGateAction').textContent = actionLabel || 'continue';
+  const back = encodeURIComponent(window.location.pathname + window.location.search);
+  document.getElementById('authGateLoginLink').href    = 'solemate_customer_login.php?redirect=' + back;
+  document.getElementById('authGateRegisterLink').href = 'solemate_customer_register.php?redirect=' + back;
+  document.getElementById('authGateOverlay').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+function closeAuthGate() {
+  document.getElementById('authGateOverlay').classList.remove('active');
+  document.body.style.overflow = '';
+}
+document.getElementById('authGateOverlay').addEventListener('click', function (e) {
+  if (e.target === this) closeAuthGate();
+});
 </script>
 </body>
 </html>

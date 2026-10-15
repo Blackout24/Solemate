@@ -22,6 +22,12 @@ $success       = false;
 $referralCodeIn = strtoupper(trim($_GET['ref'] ?? $_POST['referral_code'] ?? ''));
 $old     = [];  // repopulate form on error
 
+// Redirect-after-registration destination (e.g. from the auth gate on booking/customizer)
+$redirectTo = trim($_GET['redirect'] ?? $_POST['redirect'] ?? '');
+if (!$redirectTo || !preg_match('/^\//', $redirectTo)) {
+    $redirectTo = 'solemate_customer_dashboard.php?welcome=1';
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $old['first_name'] = trim($_POST['first_name'] ?? '');
     $old['last_name']  = trim($_POST['last_name']  ?? '');
@@ -144,7 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 error_log('[SoleMate register] welcome email failed: ' . $e->getMessage());
             }
 
-            header('Location: solemate_customer_dashboard.php?welcome=1');
+            header('Location: ' . $redirectTo);
             exit;
         } catch (\PDOException $e) {
             error_log('[SoleMate register] account creation failed: ' . $e->getMessage());
@@ -301,6 +307,7 @@ body::after{
   <?php endif; ?>
 
   <form method="POST" autocomplete="on" novalidate>
+    <input type="hidden" name="redirect" value="<?= e($redirectTo) ?>">
 
     <div class="row-2">
       <div class="fg">

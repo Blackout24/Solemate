@@ -51,6 +51,7 @@ $shoe       = clean($_POST['shoe_type']     ?? '');
 $drop_date  = trim($_POST['drop_date']      ?? '');
 $collection = $_POST['collection'] ?? 'drop-off';
 $notes      = clean($_POST['notes']         ?? '');
+$address    = clean($_POST['delivery_address'] ?? '');
 
 // ── Validation ──────────────────────────────────────────
 $errors = [];
@@ -62,6 +63,8 @@ if (!$drop_date || strtotime($drop_date) < strtotime('today'))
                                                  $errors[] = 'Please choose a valid future drop-off date.';
 if (!in_array($collection, ['drop-off','courier','home']))
                                                  $collection = 'drop-off';
+if (in_array($collection, ['courier','home']) && !$address)
+                                                 $errors[] = 'Please enter a collection address.';
 
 if (!empty($errors)) {
     $msg = urlencode(implode('|', $errors));
@@ -98,19 +101,32 @@ function generateRef(PDO $pdo): string {
 $order_ref = generateRef($pdo);
 
 // ── Insert order ────────────────────────────────────────
-$sql = "INSERT INTO dbo.booking 
+// delivery_address is a newer column — guard against DBs not yet migrated
+$hasAddressCol = false;
+try {
+    $hasAddressCol = (bool)$pdo->query("SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.booking') AND name='delivery_address'")->fetchColumn();
+} catch (\PDOException $e) {}
+
+$sql = $hasAddressCol
+    ? "INSERT INTO dbo.booking
+        (order_ref, customer_name, email, phone, service_id, shoe_type, drop_date, collection, delivery_address, notes, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    : "INSERT INTO dbo.booking 
         (order_ref, customer_name, email, phone, service_id, shoe_type, drop_date, collection, notes, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-// For drop-off: only mark 'Received' if the drop-off date is today — a future date means
-// the customer hasn't arrived yet, so default to 'Pending'. All other collection methods
-// also start as 'Pending' (courier/home pickup hasn't happened yet either).
-$status = ($collection === 'drop-off' && strtotime($drop_date) <= strtotime('today'))
-    ? 'Received'
-    : 'Pending';
+// Any collection method: 'Pending' only while the date is days ahead,
+// otherwise (today or earlier) 'Received'.
+$status = (strtotime($drop_date) > strtotime('today'))
+    ? 'Pending'
+    : 'Received';
+
+$params = $hasAddressCol
+    ? [$order_ref, $name, $email, $phone, $service_id, $shoe, $drop_date, $collection, $address, $notes, $status]
+    : [$order_ref, $name, $email, $phone, $service_id, $shoe, $drop_date, $collection, $notes, $status];
 
 $stmt = $pdo->prepare($sql);
 
-if ($stmt->execute([$order_ref, $name, $email, $phone, $service_id, $shoe, $drop_date, $collection, $notes, $status])) {
+if ($stmt->execute($params)) {
 
     // ── Send confirmation email ─────────────────────────
     // Runs after the DB insert so the order is guaranteed to
@@ -123,6 +139,7 @@ if ($stmt->execute([$order_ref, $name, $email, $phone, $service_id, $shoe, $drop
         'shoe'       => $shoe,
         'drop_date'  => $drop_date ? date('d M Y', strtotime($drop_date)) : 'TBC',
         'collection' => ucfirst($collection),
+        'delivery_address' => $address,
         'price'      => $svcRow ? (float)($svcRow['price'] ?? 0) : null,
         'price_from' => $svcRow ? (bool)($svcRow['price_from'] ?? false) : false,
     ]);
