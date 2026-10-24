@@ -110,6 +110,9 @@ $pdo->prepare("
     $cartRef,
 ]);
 
+// ── Care-product order? Mark paid + email (idempotent) ───
+if (completeCareOrder($pdo, $cartRef)) { pfLog("Care order completed for cart_ref: {$cartRef}"); }
+
 // ── Redeem coupon ────────────────────────────────────────
 if (!empty($pmt['coupon_code'])) {
     redeemCoupon($pdo, $pmt['coupon_code']);

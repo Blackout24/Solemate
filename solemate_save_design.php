@@ -73,6 +73,25 @@ if ($action === 'save') {
     jsonOut(true, 'Design saved.', ['id' => $newId, 'name' => $name]);
 }
 
+// ── UPDATE (edit an existing design) ────────────────────
+if ($action === 'update') {
+    $designId = (int)($_POST['design_id']    ?? 0);
+    $name     = trim($_POST['design_name']   ?? '');
+    $json     = trim($_POST['customization'] ?? '');
+
+    if (!$designId || !$json) jsonOut(false, 'Missing design_id or customization.');
+    json_decode($json, true);
+    if (json_last_error() !== JSON_ERROR_NONE) jsonOut(false, 'Invalid customization JSON.');
+    if ($name === '') $name = 'My Design';
+    if (mb_strlen($name) > 100) jsonOut(false, 'Name too long (max 100 characters).');
+
+    $stmt = $pdo->prepare("UPDATE dbo.customer_saved_designs SET design_name=?, customization=?, updated_at=GETDATE() WHERE id=? AND customer_id=?");
+    $stmt->execute([$name, $json, $designId, $custId]);
+
+    if ($stmt->rowCount() === 0) jsonOut(false, 'Design not found or access denied.');
+    jsonOut(true, 'Design updated.', ['id' => $designId, 'name' => $name]);
+}
+
 // ── RENAME ──────────────────────────────────────────────
 if ($action === 'rename') {
     $designId = (int)($_POST['design_id']    ?? 0);

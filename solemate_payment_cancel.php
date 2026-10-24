@@ -9,7 +9,16 @@ if ($cartRef) {
         ->execute([$cartRef]);
     $pdo->prepare("UPDATE dbo.booking SET payment_status=N'cancelled' WHERE cart_ref=? AND payment_status=N'pending'")
         ->execute([$cartRef]);
+    // Care-product order (table may not exist on older databases)
+    try {
+        $pdo->prepare("UPDATE dbo.care_orders SET payment_status=N'cancelled', status=N'Cancelled' WHERE cart_ref=? AND payment_status=N'pending'")
+            ->execute([$cartRef]);
+        $careChk = $pdo->prepare("SELECT 1 FROM dbo.care_orders WHERE cart_ref=?");
+        $careChk->execute([$cartRef]);
+        $isCareCancel = (bool)$careChk->fetchColumn();
+    } catch (\Throwable $e) { $isCareCancel = false; }
 }
+$isCareCancel = $isCareCancel ?? false;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -38,9 +47,9 @@ p{font-size:14px;color:var(--muted);line-height:1.7;margin-bottom:1.5rem}
 <div class="card">
   <div class="icon">❌</div>
   <h1>Payment cancelled</h1>
-  <p>Your payment was cancelled and nothing has been charged. Your booking details are still saved — you can try again below.</p>
+  <p>Your payment was cancelled and nothing has been charged. <?= $isCareCancel ? 'Your cart is still saved — you can try again below.' : 'Your booking details are still saved — you can try again below.' ?></p>
   <div class="btn-row">
-    <a href="solemate_checkout.php" class="btn-p">Try again →</a>
+    <a href="<?= $isCareCancel ? 'solemate_homepage.php?page=cart' : 'solemate_checkout.php' ?>" class="btn-p"><?= $isCareCancel ? 'Back to cart →' : 'Try again →' ?></a>
     <a href="solemate_homepage.php" class="btn-g">Back to home</a>
   </div>
 </div>

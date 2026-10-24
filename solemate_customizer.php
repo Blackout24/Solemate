@@ -1,3 +1,14 @@
+<?php
+// Edit mode: ?edit_design=ID loads one of the logged-in customer's saved designs
+$editDesign = null;
+if (!empty($_GET['edit_design']) && isset($pdo) && isCustomerLoggedIn()) {
+    try {
+        $edSt = $pdo->prepare("SELECT id, design_name, customization FROM dbo.customer_saved_designs WHERE id=? AND customer_id=?");
+        $edSt->execute([(int)$_GET['edit_design'], getCustomerId()]);
+        $editDesign = $edSt->fetch() ?: null;
+    } catch (\Throwable $e) { $editDesign = null; }
+}
+?>
 <div class="customizer-layout">
 
   <!-- 3D Canvas -->
@@ -243,6 +254,15 @@
         </div>
       </div>
       <button class="reset-btn" id="reset-btn">↺ Reset to defaults</button>
+      <?php if ($editDesign): ?>
+      <div id="edit-banner" style="margin-top:0.75rem;padding:8px 12px;border-radius:8px;background:rgba(212,86,26,0.12);border:1px solid rgba(212,86,26,0.3);color:#fff;font-size:12px;line-height:1.5">✏️ Editing: <strong><?= htmlspecialchars($editDesign['design_name'], ENT_QUOTES, 'UTF-8') ?></strong></div>
+      <div class="design-btn-row">
+        <button class="reset-btn" id="save-design-btn">💾 Update</button>
+        <button class="reset-btn" id="save-new-design-btn">➕ Save as new</button>
+      </div>
+      <?php else: ?>
+      <button class="reset-btn" id="save-design-btn" style="margin-top:0.5rem">💾 Save design</button>
+      <?php endif; ?>
       <button class="cta-buy-btn" id="open-buy-modal" style="margin-top:0.75rem">
         🛒 Buy Custom Shoes
       </button>
@@ -587,6 +607,7 @@ loader.load(
     applyAllColors();
     buildPartsGrid();
     buildPresetGrid();
+    if (EDIT_DESIGN) loadDesign(EDIT_DESIGN.data);
     document.getElementById('loading-screen').style.display = 'none';
   },
   undefined,
@@ -1642,8 +1663,96 @@ function updateModalPrice() {
   } else { document.getElementById('modal-decal-row').style.display = 'none'; }
 }
 
-document.getElementById('open-buy-modal').addEventListener('click', () => {
-  if (!requireAuthOrGate('buy custom shoes')) return;
+/* ── Edit mode: load a saved design into the studio ─────────────── */
+const EDIT_DESIGN = <?= $editDesign ? json_encode([
+    'id'   => (int)$editDesign['id'],
+    'name' => $editDesign['design_name'],
+    'data' => json_decode($editDesign['customization'] ?? '{}', true) ?: new stdClass(),
+], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) : 'null' ?>;
+
+function loadDesign(d) {
+  if (!d) return;
+  if (d.colors) PARTS.forEach(p => { if (d.colors[p.id]) colorState[p.id] = d.colors[p.id]; });
+  applyAllColors();
+  PARTS.forEach(p => updatePartSwatch(p.id, colorState[p.id]));
+  if (selectedPart) { syncInputs(colorState[selectedPart]); buildSwatches(); }
+
+  if (d.material) selectedMat = d.material;
+  const t = d.text || {};
+  customText      = t.content   || '';
+  customTextFont  = t.font      || 'serif';
+  customTextColor = t.color     || '#ffffff';
+  customTextPlace = t.placement || 'heel';
+  document.getElementById('custom-text-input').value = customText;
+  document.getElementById('text-placement').value    = customTextPlace;
+
+  const l = d.laces || {};
+  selectedLaceStyle = l.style || 'standard';
+  selectedLaceColor = l.color || '#e8e8e8';
+  const so = d.sole || {};
+  selectedSoleEffect = so.effect || 'standard';
+  selectedSoleColor  = so.color  || '#1a1209';
+  ACCESSORIES.forEach(a => { accessoryState[a.id] = !!(d.accessories && d.accessories[a.id]); });
+
+  const dc = d.decal || {};
+  selectedDecal      = dc.id || 'none';
+  selectedDecalPlace = dc.placement || 'side';
+  document.getElementById('decal-placement').value = selectedDecalPlace;
+
+  if (d.size) {
+    for (const sys in SIZES) { if (SIZES[sys].includes(d.size)) { selectedSizeSystem = sys; break; } }
+    selectedSize = d.size;
+    document.querySelectorAll('.size-sys-btn').forEach(b => b.classList.toggle('active-sys', b.dataset.sys === selectedSizeSystem));
+    document.getElementById('selected-size-display').textContent = selectedSize;
+  }
+
+  applyPattern(d.pattern || 'none');
+  const pt = PATTERNS.find(p => p.id === selectedPattern);
+  const pn = document.getElementById('pattern-cost-note');
+  if (pt && pt.cost > 0) { pn.style.display = 'block'; pn.textContent = `+R${pt.cost} for ${pt.label} pattern`; }
+  else pn.style.display = 'none';
+
+  buildMaterialGrid(); buildLaceStyleGrid(); buildSoleEffectsGrid(); buildFontGrid();
+  buildTextColorSwatches(); buildLaceColorSwatches(); buildSoleColorSwatches();
+  buildAccessoryGrid(); buildStitchColorSwatches(); buildPatternGrid(); buildDecalGrid();
+  buildSizeGrid();
+  updateTextPreview(); updateDecalPreview(); updateLivePrice();
+
+  if (d.hasImage) {
+    const bn = document.getElementById('edit-banner');
+    if (bn) bn.insertAdjacentHTML('beforeend', '<br><span style="opacity:.75">Your uploaded image isn\'t stored with saved designs — re-add it if needed.</span>');
+  }
+}
+
+async function saveDesign(btn, asNew) {
+  if (!requireAuthOrGate('save designs')) return;
+  const editing = !!EDIT_DESIGN && !asNew;
+  const suggested = EDIT_DESIGN ? EDIT_DESIGN.name + (asNew ? ' (copy)' : '') : 'My Design';
+  const name = prompt('Name this design:', suggested);
+  if (name === null) return;
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const fd = new FormData();
+    fd.append('action', editing ? 'update' : 'save');
+    if (editing) fd.append('design_id', EDIT_DESIGN.id);
+    fd.append('design_name', (name.trim() || 'My Design').slice(0, 100));
+    fd.append('customization', JSON.stringify(buildCustomData()));
+    const res  = await fetch('solemate_save_design.php', { method: 'POST', body: fd,
+                   headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = editing ? '✓ Design updated' : '✓ Saved to your account';
+      if (editing && data.name) EDIT_DESIGN.name = data.name;
+    } else { btn.textContent = orig; alert(data.message || 'Could not save design.'); }
+  } catch (e) { btn.textContent = orig; alert('Could not save design.'); }
+  setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+}
+document.getElementById('save-design-btn').addEventListener('click', function () { saveDesign(this, false); });
+const saveNewBtn = document.getElementById('save-new-design-btn');
+if (saveNewBtn) saveNewBtn.addEventListener('click', function () { saveDesign(this, true); });
+
+function buildCustomData() {
   // Build price breakdown so PHP can reconstruct the exact total
   const priceBreakdown = [];
   priceBreakdown.push({ label: 'Custom shoe (1 pair)', cost: 1200 });
@@ -1677,6 +1786,12 @@ document.getElementById('open-buy-modal').addEventListener('click', () => {
     price_breakdown: priceBreakdown,
     total_price: calcTotal()
   };
+  return customData;
+}
+
+document.getElementById('open-buy-modal').addEventListener('click', () => {
+  if (!requireAuthOrGate('buy custom shoes')) return;
+  const customData = buildCustomData();
   document.getElementById('customization_data_field').value = JSON.stringify(customData);
   document.getElementById('shoe_size_field').value = selectedSize;
   buildDesignPreview();
@@ -1875,10 +1990,10 @@ updateLivePrice();
 .env-btn.active-env .env-label{color:var(--tan,#c8a97e)}
 
 /* ── LIVE PRICE ── */
-.live-price-bar{background:rgba(200,169,126,0.1);border:1px solid rgba(200,169,126,0.2);border-radius:9px;padding:10px 12px;margin-bottom:10px;cursor:pointer}
-.price-breakdown-toggle{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:#fff}
+.live-price-bar{background:rgba(200,169,126,0.1);border:1px solid rgba(200,169,126,0.2);border-radius:8px;padding:5px 10px;margin-bottom:8px;cursor:pointer}
+.price-breakdown-toggle{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#fff;line-height:1.2}
 .price-breakdown-toggle span:first-child{flex:1}
-.price-breakdown-toggle span:nth-child(2){color:var(--tan,#c8a97e);font-size:15px;font-family:'Playfair Display',serif}
+.price-breakdown-toggle span:nth-child(2){color:var(--tan,#c8a97e);font-size:13px;font-family:'Playfair Display',serif}
 .toggle-arrow{font-size:10px;color:rgba(200,169,126,0.6)}
 .price-breakdown{margin-top:8px;padding-top:8px;border-top:1px solid rgba(200,169,126,0.15)}
 .pb-row{display:flex;justify-content:space-between;font-size:11px;color:rgba(255,255,255,0.55);padding:2px 0}
@@ -1929,4 +2044,13 @@ updateLivePrice();
 .modal-submit-btn{width:100%;padding:14px;border:none;border-radius:10px;background:linear-gradient(135deg,#D4561A,#c8a97e);color:#fff;font-size:15px;font-weight:600;cursor:pointer;letter-spacing:.3px;transition:all .2s;font-family:inherit}
 .modal-submit-btn:hover{transform:translateY(-1px);box-shadow:0 6px 24px rgba(212,86,26,0.45)}
 @media(max-width:480px){.form-row{grid-template-columns:1fr}}
+/* ── Compact actions card (Total / save / buy) ── */
+.customizer-panel .actions-card{padding:0.6rem 0.7rem}
+.actions-card .live-price-bar{padding:4px 9px;margin-bottom:6px}
+.actions-card .reset-btn{padding:6px 8px;font-size:11px;border-radius:7px;margin-top:5px!important}
+.actions-card #reset-btn{margin-top:0!important}
+.actions-card #edit-banner{margin-top:6px!important;padding:5px 9px!important;font-size:11px!important;border-radius:7px!important}
+.actions-card .design-btn-row{display:flex;gap:6px;margin-top:5px}
+.actions-card .design-btn-row .reset-btn{flex:1;margin-top:0!important;padding:6px 4px}
+.actions-card .cta-buy-btn{padding:9px;font-size:13px;border-radius:8px;margin-top:6px!important}
 </style>

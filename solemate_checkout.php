@@ -301,7 +301,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       </div>
       <?php elseif (!isCustomerLoggedIn()): ?>
       <div style="font-size:12px;color:var(--muted);background:rgba(107,66,38,.05);border-radius:8px;padding:.75rem;text-align:center">
-        <a href="solemate_customer_login.php?redirect=<?= urlencode('/SoleMate/solemate_checkout.php') ?>" style="color:var(--accent);font-weight:500">Sign in</a> to earn &amp; redeem loyalty points.
+        <a href="solemate_customer_login.php?redirect=<?= urlencode($_SERVER['SCRIPT_NAME'] ?? '/solemate_checkout.php') ?>" style="color:var(--accent);font-weight:500">Sign in</a> to earn &amp; redeem loyalty points.
       </div>
       <?php endif; ?>
     </div>

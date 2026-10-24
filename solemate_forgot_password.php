@@ -11,6 +11,7 @@ if (!empty($_SESSION['customer_logged_in'])) {
 
 require 'includes/solemate_database_connection.php';
 require 'includes/solemate_mailer.php';
+require_once 'includes/solemate_url.php';
 require 'includes/solemate_customer_mailer.php';
 
 $errors  = [];
@@ -45,9 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         VALUES (?, ?, ?)
                     ")->execute([$user['email'], $token, $expiresAt]);
 
-                    $protocol  = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-                    $host      = $_SERVER['HTTP_HOST'] ?? 'localhost';
-                    $resetUrl  = $protocol . '://' . $host . '/SoleMate/solemate_reset_password.php?token=' . urlencode($token);
+                    $resetUrl  = appBaseUrl() . '/solemate_reset_password.php?token=' . urlencode($token);
 
                     try {
                         sendPasswordResetEmail([

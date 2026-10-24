@@ -24,6 +24,8 @@ $isPaid     = false;
 $booking    = null;
 $gcRow      = null;
 $isGiftCard = false;
+$careOrder  = null;
+$careItems  = [];
 
 if ($cartRef) {
     // Try booking first (regular service payment)
@@ -57,6 +59,23 @@ if ($cartRef) {
     }
 }
 
+// No booking / gift card → could be a care-product order
+if ($cartRef && !$booking && !$gcRow) {
+    try {
+        $cst = $pdo->prepare("SELECT * FROM dbo.care_orders WHERE cart_ref = ?");
+        $cst->execute([$cartRef]);
+        $careOrder = $cst->fetch() ?: null;
+        if ($careOrder) {
+            $isPaid = $careOrder['payment_status'] === 'paid';
+            if ($isPaid) {
+                $cit = $pdo->prepare("SELECT name, qty, line_total FROM dbo.care_order_items WHERE order_id=? ORDER BY id");
+                $cit->execute([(int)$careOrder['id']]);
+                $careItems = $cit->fetchAll();
+            }
+        }
+    } catch (\Throwable $e) { $careOrder = null; }
+}
+
 $loyaltyBalance = 0;
 if (isCustomerLoggedIn()) {
     $lr = $pdo->prepare("SELECT loyalty_points FROM dbo.customers WHERE id=?");
@@ -66,6 +85,7 @@ if (isCustomerLoggedIn()) {
 
 if ($isPaid) {
     cartClear();
+    if ($careOrder) unset($_SESSION['care_cart'], $_SESSION['sm_care_order_ref']);
     unset($_SESSION['sm_cart_ref'], $_SESSION['sm_order_ref']);
 }
 
@@ -162,6 +182,34 @@ dt{color:var(--muted);font-weight:500}dd{font-weight:500}
   <div class="btn-row">
     <a href="solemate_homepage.php?page=giftcard" class="btn-p">Buy another →</a>
     <a href="solemate_homepage.php" class="btn-g">Back to home</a>
+  </div>
+
+<?php elseif ($isPaid && $careOrder): ?>
+  <!-- ── CARE ORDER SUCCESS ────────────────────────── -->
+  <div class="icon-circle icon-ok success-anim">🧴</div>
+  <h1>Order confirmed!</h1>
+  <p class="sub">
+    Thank you, <?= e(explode(' ', $careOrder['customer_name'])[0]) ?>!<br>
+    A confirmation has been emailed to <strong><?= e($careOrder['email']) ?></strong>.
+  </p>
+  <hr>
+  <dl>
+    <dt>Order ref</dt> <dd><?= e($careOrder['order_ref']) ?></dd>
+    <?php foreach ($careItems as $ci): ?>
+    <dt><?= e($ci['name']) ?></dt><dd>× <?= (int)$ci['qty'] ?> · R<?= number_format((float)$ci['line_total'], 2) ?></dd>
+    <?php endforeach; ?>
+    <dt><?= $careOrder['delivery_method'] === 'delivery' ? 'Delivery' : 'Collection' ?></dt>
+    <dd><?= $careOrder['delivery_method'] === 'delivery' ? e($careOrder['delivery_address'] ?? '') : 'In store — 123 Florida Road, Morningside' ?></dd>
+    <dt>Amount paid</dt><dd style="color:var(--success)">R<?= number_format((float)$careOrder['total'], 2) ?></dd>
+  </dl>
+  <?php if ($loyaltyBalance > 0): ?>
+  <div class="loyalty-pill">⭐ You now have <strong><?= number_format($loyaltyBalance) ?> loyalty points</strong></div>
+  <?php endif; ?>
+  <div class="btn-row">
+    <?php if (isCustomerLoggedIn()): ?>
+    <a href="solemate_customer_dashboard.php?tab=care" class="btn-p">View my orders →</a>
+    <?php endif; ?>
+    <a href="solemate_homepage.php?page=care" class="btn-g">Keep shopping</a>
   </div>
 
 <?php elseif ($isPaid && $booking): ?>

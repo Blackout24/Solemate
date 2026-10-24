@@ -67,9 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
         $orderRow = $orderStmt->fetch();
 
         if ($orderRow && !empty($orderRow['email'])) {
-            $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-            $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
-            $trackerUrl = $protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($orderRow['order_ref']);
+            $trackerUrl = appBaseUrl() . '/solemate_homepage.php?page=tracker&oid=' . urlencode($orderRow['order_ref']);
             sendStatusUpdateEmail([
                 'order_ref'   => $orderRow['order_ref'],
                 'name'        => $orderRow['customer_name'],
@@ -164,6 +162,80 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_inventory'])) 
         $pdo->prepare("DELETE FROM dbo.inventory WHERE id=?")->execute([$invId]);
     }
     header('Location: solemate_admin_dashboard.php?flash=inv_deleted#analytics'); exit;
+}
+
+// ── Care orders: status update ───────────────────────────
+require_once __DIR__ . '/includes/solemate_care_orders.php';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_care_order'])) {
+    $coId = (int)($_POST['order_id'] ?? 0);
+    $coSt = $_POST['order_status'] ?? '';
+    if ($coId > 0 && in_array($coSt, CARE_ORDER_STATUSES, true) && careTableExists($pdo, 'care_orders')) {
+        $pdo->prepare("UPDATE dbo.care_orders SET status=? WHERE id=?")->execute([$coSt, $coId]);
+    }
+    header('Location: solemate_admin_dashboard.php?flash=care_order_saved#care'); exit;
+}
+
+// ── Care products: image helpers + CRUD ─────────────────
+function careImageSave(array $file, ?string &$err): ?string {
+    if (empty($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) return null;
+    if ($file['error'] !== UPLOAD_ERR_OK)  { $err = 'Image upload failed.'; return null; }
+    if ($file['size'] > 3 * 1024 * 1024)   { $err = 'Image must be under 3MB.'; return null; }
+    $info = @getimagesize($file['tmp_name']);
+    $ext  = ['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp','image/gif'=>'gif'][$info['mime'] ?? ''] ?? null;
+    if (!$ext) { $err = 'Image must be JPG, PNG, WEBP or GIF.'; return null; }
+    $dir = __DIR__ . '/uploads/care';
+    if (!is_dir($dir)) @mkdir($dir, 0755, true);
+    $name = 'care_' . bin2hex(random_bytes(6)) . '.' . $ext;
+    if (!move_uploaded_file($file['tmp_name'], $dir . '/' . $name)) { $err = 'Could not save image.'; return null; }
+    return 'uploads/care/' . $name;
+}
+function careImageDelete(?string $path): void {
+    if ($path && strpos($path, 'uploads/care/') === 0) {
+        $f = __DIR__ . '/' . $path;
+        if (is_file($f)) @unlink($f);
+    }
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['add_care']) || isset($_POST['update_care']) || isset($_POST['delete_care']))) {
+    $careTable = (bool)$pdo->query("SELECT 1 FROM sys.objects WHERE object_id=OBJECT_ID(N'dbo.care_products') AND type='U'")->fetchColumn();
+    if (!$careTable) { header('Location: solemate_admin_dashboard.php?flash=care_table_missing#care'); exit; }
+
+    $cName  = trim($_POST['care_name'] ?? '');
+    $cDesc  = mb_substr(trim($_POST['care_desc'] ?? ''), 0, 500);
+    $cPrice = (float)($_POST['care_price'] ?? 0);
+    $cIcon  = mb_substr(trim($_POST['care_icon'] ?? ''), 0, 16);
+    $cId    = (int)($_POST['care_id'] ?? 0);
+
+    if (isset($_POST['add_care'])) {
+        if ($cName === '' || $cPrice < 0) { header('Location: solemate_admin_dashboard.php?flash=care_error&msg=' . urlencode('Name and a valid price are required.') . '#care'); exit; }
+        $err = null; $img = careImageSave($_FILES['care_image'] ?? [], $err);
+        if ($err) { header('Location: solemate_admin_dashboard.php?flash=care_error&msg=' . urlencode($err) . '#care'); exit; }
+        $next = (int)$pdo->query("SELECT ISNULL(MAX(sort_order),0)+10 FROM dbo.care_products")->fetchColumn();
+        $pdo->prepare("INSERT INTO dbo.care_products (name,description,price,icon,image_path,sort_order) VALUES (?,?,?,?,?,?)")
+            ->execute([$cName, $cDesc ?: null, $cPrice, $cIcon ?: null, $img, $next]);
+        header('Location: solemate_admin_dashboard.php?flash=care_saved#care'); exit;
+    }
+
+    if (isset($_POST['update_care']) && $cId > 0) {
+        if ($cName === '' || $cPrice < 0) { header('Location: solemate_admin_dashboard.php?flash=care_error&msg=' . urlencode('Name and a valid price are required.') . '#care'); exit; }
+        $old = $pdo->prepare("SELECT image_path FROM dbo.care_products WHERE id=?"); $old->execute([$cId]);
+        $oldImg = $old->fetchColumn();
+        $err = null; $newImg = careImageSave($_FILES['care_image'] ?? [], $err);
+        if ($err) { header('Location: solemate_admin_dashboard.php?flash=care_error&msg=' . urlencode($err) . '#care'); exit; }
+        $img = $oldImg ?: null;
+        if ($newImg)                              { careImageDelete($oldImg); $img = $newImg; }
+        elseif (!empty($_POST['care_remove_img'])) { careImageDelete($oldImg); $img = null; }
+        $active = isset($_POST['care_active']) ? 1 : 0;
+        $pdo->prepare("UPDATE dbo.care_products SET name=?,description=?,price=?,icon=?,image_path=?,is_active=? WHERE id=?")
+            ->execute([$cName, $cDesc ?: null, $cPrice, $cIcon ?: null, $img, $active, $cId]);
+        header('Location: solemate_admin_dashboard.php?flash=care_saved#care'); exit;
+    }
+
+    if (isset($_POST['delete_care']) && $cId > 0) {
+        $old = $pdo->prepare("SELECT image_path FROM dbo.care_products WHERE id=?"); $old->execute([$cId]);
+        careImageDelete($old->fetchColumn() ?: null);
+        $pdo->prepare("DELETE FROM dbo.care_products WHERE id=?")->execute([$cId]);
+        header('Location: solemate_admin_dashboard.php?flash=care_deleted#care'); exit;
+    }
 }
 
 // ── E-Commerce: Coupon CRUD ─────────────────────────────
@@ -348,6 +420,11 @@ $flashMap = [
     'pw_short'       => ['error',   'New password must be at least 8 characters.'],
     'pw_mismatch'    => ['error',   'New passwords do not match.'],
     'inv_added'      => ['success', 'Inventory item added.'],
+    'care_saved'     => ['success', 'Care product saved.'],
+    'care_order_saved' => ['success', 'Care order updated.'],
+    'care_deleted'   => ['error',   'Care product deleted.'],
+    'care_table_missing' => ['error', 'Run solemate_care_products_migration.sql in SSMS first.'],
+    'care_error'     => ['error',   htmlspecialchars($_GET['msg'] ?? 'Could not save product.', ENT_QUOTES, 'UTF-8')],
     'coupon_added'   => ['success', 'Coupon created.'],
     'coupon_updated' => ['success', 'Coupon updated.'],
     'coupon_deleted' => ['error',   'Coupon deleted.'],
@@ -478,6 +555,7 @@ foreach ($booking as $bk) {
 }
 arsort($colourCounts);
 arsort($sizeCounts);
+$topColours = $colourCounts; // used by the Analysis tab swatches
 
 // ── Inventory data ──────────────────────────────────────
 $inventory    = [];
@@ -488,6 +566,26 @@ try {
 if ($hasInventory) {
     $inventory = $pdo->query("SELECT * FROM dbo.inventory ORDER BY category, item_name")->fetchAll();
 }
+// ── Care orders data ────────────────────────────────────
+$careOrdersAdmin = []; $careOrderItems = [];
+try {
+    if (careTableExists($pdo, 'care_orders')) {
+        $careOrdersAdmin = $pdo->query("SELECT TOP 100 * FROM dbo.care_orders WHERE payment_status<>N'cancelled' ORDER BY created_at DESC")->fetchAll();
+        $oids = array_map(fn($r) => (int)$r['id'], $careOrdersAdmin);
+        if ($oids) {
+            $ph = implode(',', $oids);
+            foreach ($pdo->query("SELECT order_id, name, qty FROM dbo.care_order_items WHERE order_id IN ($ph) ORDER BY id")->fetchAll() as $ci) {
+                $careOrderItems[(int)$ci['order_id']][] = $ci['name'] . ' × ' . (int)$ci['qty'];
+            }
+        }
+    }
+} catch (\Throwable $e) {}
+// ── Care products data ──────────────────────────────────
+$careAdmin = []; $hasCare = false;
+try {
+    $hasCare = (bool)$pdo->query("SELECT 1 FROM sys.objects WHERE object_id=OBJECT_ID(N'dbo.care_products') AND type='U'")->fetchColumn();
+    if ($hasCare) $careAdmin = $pdo->query("SELECT * FROM dbo.care_products ORDER BY sort_order, id")->fetchAll();
+} catch (\PDOException $e) {}
 $invLow = array_values(array_filter($inventory, fn($i)=> (float)$i['quantity']>0 && (float)$i['quantity']<=(float)$i['reorder_level']));
 $invOut = array_values(array_filter($inventory, fn($i)=> (float)$i['quantity']<=0));
 
@@ -731,6 +829,7 @@ tr:hover td{background:var(--cream)}
     <button class="tab-btn" onclick="switchTab('settings',this)">Settings</button>
     <button class="tab-btn" onclick="switchTab('backup',this)">Backup</button>
     <button class="tab-btn" onclick="switchTab('ecommerce',this)">🛒 E-Commerce</button>
+    <button class="tab-btn" onclick="switchTab('care',this)">🧴 Care Products</button>
     <button class="tab-btn" onclick="switchTab('analytics',this)">📊 Analytics</button>
     <button class="tab-btn" onclick="switchTab('inventory',this)">📦 Inventory
       <?php if (count($invOut)>0): ?><span style="background:#c0392b;color:#fff;font-size:10px;padding:1px 6px;border-radius:20px;margin-left:4px"><?= count($invOut) ?></span>
@@ -1484,6 +1583,122 @@ tr:hover td{background:var(--cream)}
     <?php endif; ?>
   </div><!-- /tab-inventory -->
 
+  <!-- ══ CARE PRODUCTS TAB ════════════════════════════════ -->
+  <div class="tab-panel" id="tab-care">
+    <?php if (!$hasCare): ?>
+    <div style="background:#fff8f6;border:1px solid rgba(212,86,26,0.3);border-radius:10px;padding:0.9rem 1.1rem;font-size:13px;color:#8B2200;margin-bottom:1rem">
+      ⚠️ The <code>dbo.care_products</code> table does not exist yet. Run <strong>solemate_care_products_migration.sql</strong> in SSMS first. Until then the website shows its built-in product list.
+    </div>
+    <?php else: ?>
+    <button class="inv-add-toggle" onclick="document.getElementById('careAddForm').classList.toggle('inv-open')">＋ Add care product</button>
+    <div class="inv-add-form" id="careAddForm">
+      <strong style="font-size:13px;display:block;margin-bottom:0.875rem">New product</strong>
+      <form method="POST" enctype="multipart/form-data">
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:0.625rem;margin-bottom:0.625rem">
+          <div><label class="inv-label">Name *</label><input type="text" name="care_name" required class="inv-input" placeholder="e.g. Foam Cleaner (100ml)"></div>
+          <div><label class="inv-label">Price (R) *</label><input type="number" name="care_price" step="0.01" min="0" required class="inv-input"></div>
+          <div><label class="inv-label">Icon (emoji)</label><input type="text" name="care_icon" maxlength="8" class="inv-input" placeholder="🧴"></div>
+        </div>
+        <div style="margin-bottom:0.625rem"><label class="inv-label">Description</label>
+          <textarea name="care_desc" rows="2" maxlength="500" class="inv-input" placeholder="Short description (optional)"></textarea></div>
+        <div style="margin-bottom:0.875rem">
+          <label class="inv-label">Image (JPG/PNG/WEBP, max 3MB)</label><input type="file" name="care_image" accept="image/*" class="inv-input">
+        </div>
+        <div style="display:flex;gap:0.625rem;align-items:center">
+          <button type="submit" name="add_care" class="save-btn" style="padding:9px 20px;font-size:13px">Add product</button>
+          <button type="button" class="inv-cancel" onclick="document.getElementById('careAddForm').classList.remove('inv-open')">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:64px"></th><th>Product</th><th>Price</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        <?php foreach ($careAdmin as $cp): $cid = (int)$cp['id']; ?>
+          <tr>
+            <td>
+              <?php if (!empty($cp['image_path'])): ?>
+                <img src="<?= eh($cp['image_path']) ?>" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:8px">
+              <?php else: ?>
+                <span style="font-size:1.6rem"><?= eh($cp['icon'] ?: '🧴') ?></span>
+              <?php endif; ?>
+            </td>
+            <td><strong><?= eh($cp['name']) ?></strong>
+              <?php if (!empty($cp['description'])): ?><div style="color:var(--muted);font-size:12px;max-width:320px"><?= eh($cp['description']) ?></div><?php endif; ?></td>
+            <td class="price-cell">R<?= number_format((float)$cp['price'], 2) ?></td>
+            <td><span style="font-size:12px;color:<?= $cp['is_active'] ? 'var(--success,#2D6A4F)' : 'var(--muted)' ?>"><?= $cp['is_active'] ? 'Visible' : 'Hidden' ?></span></td>
+            <td style="white-space:nowrap">
+              <button type="button" class="inv-cancel" onclick="var r=document.getElementById('care-edit-<?= $cid ?>');r.style.display=r.style.display==='none'?'table-row':'none'">Edit</button>
+              <form method="POST" style="display:inline" onsubmit="return confirm('Delete this product?')">
+                <input type="hidden" name="care_id" value="<?= $cid ?>">
+                <button type="submit" name="delete_care" style="background:none;border:1px solid rgba(212,86,26,0.25);color:var(--accent);padding:5px 8px;border-radius:6px;font-size:11px;cursor:pointer">✕</button>
+              </form>
+            </td>
+          </tr>
+          <tr id="care-edit-<?= $cid ?>" style="display:none">
+            <td colspan="5" style="background:var(--light)">
+              <form method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="care_id" value="<?= $cid ?>">
+                <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:0.625rem;margin-bottom:0.625rem">
+                  <div><label class="inv-label">Name *</label><input type="text" name="care_name" required class="inv-input" value="<?= eh($cp['name']) ?>"></div>
+                  <div><label class="inv-label">Price (R) *</label><input type="number" name="care_price" step="0.01" min="0" required class="inv-input" value="<?= eh((string)$cp['price']) ?>"></div>
+                  <div><label class="inv-label">Icon (emoji)</label><input type="text" name="care_icon" maxlength="8" class="inv-input" value="<?= eh($cp['icon']) ?>"></div>
+                </div>
+                <div style="margin-bottom:0.625rem"><label class="inv-label">Description</label>
+                  <textarea name="care_desc" rows="2" maxlength="500" class="inv-input"><?= eh($cp['description']) ?></textarea></div>
+                <div style="margin-bottom:0.625rem">
+                  <label class="inv-label">Replace image</label><input type="file" name="care_image" accept="image/*" class="inv-input">
+                  <?php if (!empty($cp['image_path'])): ?><label style="font-size:12px;display:block;margin-top:4px"><input type="checkbox" name="care_remove_img" value="1"> Remove current image</label><?php endif; ?>
+                </div>
+                <label style="font-size:12px;display:block;margin-bottom:0.75rem"><input type="checkbox" name="care_active" value="1" <?= $cp['is_active'] ? 'checked' : '' ?>> Visible on website</label>
+                <button type="submit" name="update_care" class="save-btn" style="padding:8px 18px;font-size:13px">Save changes</button>
+              </form>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+        <?php if (!$careAdmin): ?><tr><td colspan="5" style="color:var(--muted);text-align:center;padding:1.5rem">No care products yet.</td></tr><?php endif; ?>
+        </tbody>
+      </table>
+    </div>
+    <?php endif; ?>
+
+    <div class="sec-title" style="font-family:'Playfair Display',serif;font-size:16px;font-weight:700;margin:2rem 0 0.75rem">Care product orders</div>
+    <?php if (!careTableExists($pdo, 'care_orders')): ?>
+      <div style="color:var(--muted);font-size:13px">Run <strong>solemate_care_orders_migration.sql</strong> to enable shop orders.</div>
+    <?php else: ?>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Delivery</th><th>Total</th><th>Paid</th><th>Status</th></tr></thead>
+        <tbody>
+        <?php foreach ($careOrdersAdmin as $co): ?>
+          <tr>
+            <td><strong><?= eh($co['order_ref']) ?></strong><div style="color:var(--muted);font-size:11px"><?= eh(date('d M Y H:i', strtotime($co['created_at']))) ?></div></td>
+            <td><?= eh($co['customer_name']) ?><div style="color:var(--muted);font-size:11px"><?= eh($co['email']) ?><?= $co['phone'] ? ' · ' . eh($co['phone']) : '' ?></div></td>
+            <td style="font-size:12px"><?= eh(implode(', ', $careOrderItems[(int)$co['id']] ?? [])) ?></td>
+            <td style="font-size:12px"><?= $co['delivery_method'] === 'delivery' ? '🚚 ' . eh($co['delivery_address'] ?? '') : '🏬 Collect in store' ?></td>
+            <td class="price-cell">R<?= number_format((float)$co['total'], 2) ?></td>
+            <td><span style="font-size:12px;color:<?= $co['payment_status'] === 'paid' ? 'var(--success,#2D6A4F)' : 'var(--muted)' ?>"><?= $co['payment_status'] === 'paid' ? 'Paid' : 'Awaiting payment' ?></span></td>
+            <td>
+              <form method="POST" style="display:flex;gap:6px;align-items:center">
+                <input type="hidden" name="order_id" value="<?= (int)$co['id'] ?>">
+                <select name="order_status" class="inv-input" style="padding:5px 8px;font-size:12px">
+                  <?php foreach (CARE_ORDER_STATUSES as $st): ?>
+                  <option<?= $co['status'] === $st ? ' selected' : '' ?>><?= eh($st) ?></option>
+                  <?php endforeach; ?>
+                </select>
+                <button type="submit" name="update_care_order" class="save-btn" style="padding:5px 10px;font-size:12px">Save</button>
+              </form>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+        <?php if (!$careOrdersAdmin): ?><tr><td colspan="7" style="color:var(--muted);text-align:center;padding:1.5rem">No care orders yet.</td></tr><?php endif; ?>
+        </tbody>
+      </table>
+    </div>
+    <?php endif; ?>
+  </div><!-- /tab-care -->
+
   <!-- ══ E-COMMERCE TAB ════════════════════════════════════ -->
   <div class="tab-panel" id="tab-ecommerce">
 
@@ -1813,7 +2028,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCustome
 
 // Restore active tab from hash
 const hash = window.location.hash.replace('#','');
-if (['booking','custom','customers','payments','services','settings','backup','analytics','inventory','ecommerce'].includes(hash)) {
+if (['booking','custom','customers','payments','services','settings','backup','analytics','inventory','ecommerce','care'].includes(hash)) {
   const btn = document.querySelector(`.tab-btn[onclick*="${hash}"]`);
   if (btn) switchTab(hash, btn);
 }

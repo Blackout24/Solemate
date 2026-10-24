@@ -21,8 +21,11 @@ if (isCustomerLoggedIn()) {
     } catch (PDOException $e) {}
 }
 
+$cartCount = 0;
+foreach (($_SESSION['care_cart'] ?? []) as $cq) { $cartCount += (int)$cq; }
+
 $page       = $_GET['page'] ?? 'services';
-$validPages = ['services', 'booking', 'tracker', 'calculator', 'reviews', 'gallery', 'about', 'giftcard', 'customizer'];
+$validPages = ['services', 'booking', 'tracker', 'calculator', 'reviews', 'gallery', 'care', 'cart', 'about', 'giftcard', 'customizer'];
 if (!in_array($page, $validPages)) $page = 'services';
 if ($page === 'giftcard' && !$settings['gift_cards']) $page = 'services';
 
@@ -635,6 +638,42 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
 .gc-balance-err{background:#fff8f6;border:1.5px solid rgba(212,86,26,.25);color:#8B2200}
 [data-theme="dark"] .alert-error,[data-theme="dark"] .not-found,[data-theme="dark"] .gc-balance-err{background:rgba(212,86,26,0.14);color:#FF9A6B}
 [data-theme="dark"] .alert-success,[data-theme="dark"] .gc-balance-ok{background:rgba(45,106,79,0.2);color:#8FE0B8}
+/* ── Navbar fit: single row, tighter tabs, hamburger on narrow screens ── */
+.nav-tabs{flex-wrap:nowrap}
+.nav-tab{white-space:nowrap;padding:6px 10px}
+.nav-account{max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.nav-cart{position:relative;margin-left:0.6rem;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;text-decoration:none;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.16);flex-shrink:0;transition:all .18s}
+.nav-cart:hover{background:rgba(255,255,255,0.16);border-color:var(--tan)}
+.cart-badge{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--accent);color:#fff;font-size:10px;font-weight:600;align-items:center;justify-content:center;line-height:1}
+.nav-burger{display:none;margin-left:0.6rem;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.16);color:var(--tan);width:34px;height:34px;border-radius:8px;font-size:16px;cursor:pointer;flex-shrink:0;align-items:center;justify-content:center}
+@media(max-width:1560px){.nav-tab{padding:6px 8px;font-size:12.5px}}
+@media(max-width:1380px){
+  .nav-burger{display:flex}
+  .nav-tabs{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;gap:2px;padding:0.5rem 1rem 0.75rem;background:var(--dark);border-top:1px solid rgba(255,255,255,0.08);box-shadow:0 12px 24px rgba(0,0,0,0.35);max-height:calc(100vh - 60px);overflow-y:auto}
+  .nav-tabs.open{display:flex}
+  .nav-tab{font-size:14px;padding:10px 12px}
+}
+
+/* ── Care products: add to cart + cart page ── */
+.care-add-btn{margin-top:0.4rem;width:100%;background:var(--accent);color:#fff;border:none;padding:9px;border-radius:8px;font-size:12.5px;font-weight:500;cursor:pointer;font-family:inherit;transition:opacity .15s,background .15s}
+.care-add-btn:hover{opacity:.88}
+.care-add-btn.added{background:var(--success)}
+.cart-wrap{background:var(--card-bg);border:1px solid rgba(var(--border-rgb),0.12);border-radius:14px;padding:1.25rem 1.5rem;max-width:720px}
+.cart-line{display:flex;flex-wrap:wrap;align-items:center;gap:0.9rem;padding:0.9rem 0;border-bottom:1px solid rgba(var(--border-rgb),0.1)}
+.cart-thumb{width:56px;height:56px;border-radius:10px;object-fit:cover;background:rgba(var(--accent-rgb),0.1);display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0}
+.cart-info{flex:1;min-width:140px}
+.cart-name{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;line-height:1.35}
+.cart-unit{font-size:12px;color:var(--muted);margin-top:2px}
+.cart-qty{display:flex;align-items:center;gap:6px}
+.cart-qty button{width:26px;height:26px;border-radius:6px;border:1px solid rgba(var(--border-rgb),0.2);background:var(--cream);color:var(--text);cursor:pointer;font-size:14px;line-height:1}
+.cart-qty span{min-width:20px;text-align:center;font-size:13px}
+.cart-line-total{font-weight:500;color:var(--accent);min-width:84px;text-align:right}
+.cart-remove{background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px}
+.cart-remove:hover{color:var(--accent)}
+.cart-total-row{display:flex;justify-content:space-between;align-items:center;padding:1.1rem 0 0.4rem;font-size:14px}
+.cart-total-row strong{font-family:'Playfair Display',serif;font-size:24px;color:var(--accent)}
+.cart-empty{text-align:center;padding:2.5rem 1rem;color:var(--muted);font-size:14px}
+.cart-note{font-size:12px;color:var(--muted);margin-top:0.75rem}
 /* ── Auth gate modal (guest tries to book / buy) ─────────── */
 .ag-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2000;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s;padding:1rem}
 .ag-overlay.active{opacity:1;pointer-events:all}
@@ -650,6 +689,17 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
 .ag-btn-primary:hover{opacity:.88}
 .ag-btn-secondary{background:none;border:1.5px solid rgba(var(--border-rgb),.22);color:var(--text)}
 .ag-btn-secondary:hover{background:rgba(var(--border-rgb),.06)}
+/* ── Care Products ── */
+.care-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:1rem}
+.care-card{background:var(--card-bg);border:1px solid rgba(var(--border-rgb),0.12);border-radius:12px;padding:1.25rem;display:flex;flex-direction:column;gap:0.5rem;transition:transform 0.18s,box-shadow 0.18s}
+.care-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(var(--border-rgb),0.13)}
+.care-icon{font-size:2rem;line-height:1;width:54px;height:54px;border-radius:12px;background:rgba(var(--accent-rgb),0.1);display:flex;align-items:center;justify-content:center;margin-bottom:0.25rem}
+.care-name{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;line-height:1.35;flex:1}
+.care-price{font-size:18px;font-weight:500;color:var(--accent)}
+.care-link{font-size:12px;color:var(--muted);text-decoration:none;font-weight:500}
+.care-link:hover{color:var(--accent)}
+.care-img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:10px;margin-bottom:0.25rem}
+.care-desc{font-size:12px;color:var(--muted);line-height:1.5}
 </style>
 </head>
 <body>
@@ -658,7 +708,7 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
   <div style="display:flex;align-items:center">
     <div class="nav-tabs">
       <?php
-      $tabs = ['services'=>'Services','booking'=>'Booking','tracker'=>'Track Order','calculator'=>'Quote','reviews'=>'Reviews','gallery'=>'Gallery','giftcard'=>'🎁 Gift Cards','about'=>'About Us','customizer'=>'✦ 3D Customize'];
+      $tabs = ['services'=>'Services','booking'=>'Booking','tracker'=>'Track Order','calculator'=>'Quote','reviews'=>'Reviews','gallery'=>'Gallery','care'=>'🧴 Care Products','giftcard'=>'🎁 Gift Cards','about'=>'About Us','customizer'=>'✦ 3D Customize'];
       if (!$settings['gift_cards']) unset($tabs['giftcard']);
       foreach ($tabs as $key => $label) {
           $active = ($page === $key) ? ' active' : '';
@@ -669,7 +719,7 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
     </div>
     <div style="display:flex;align-items:center;gap:4px;margin-left:0.5rem;border-left:1px solid rgba(255,255,255,0.1);padding-left:0.75rem">
       <?php if (isCustomerLoggedIn()): ?>
-        <a href="solemate_customer_dashboard.php" class="nav-tab" title="My account"
+        <a href="solemate_customer_dashboard.php" class="nav-tab nav-account" title="My account"
            style="white-space:nowrap">
           <span style="margin-right:4px;font-size:14px">👤</span><?= getCustomerName() ?>
         </a>
@@ -678,9 +728,26 @@ footer{background:var(--dark);color:rgba(255,255,255,0.42);text-align:center;pad
         <a href="solemate_customer_register.php" class="admin-link" style="white-space:nowrap">Register</a>
       <?php endif; ?>
     </div>
+    <a href="solemate_homepage.php?page=cart" class="nav-cart" title="Cart" aria-label="Cart">🛒<span class="cart-badge" id="cartBadge" style="display:<?= $cartCount > 0 ? 'flex' : 'none' ?>"><?= (int)$cartCount ?></span></a>
     <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle light/dark mode" title="Toggle light/dark mode">🌙</button>
+    <button id="navBurger" class="nav-burger" type="button" aria-label="Menu" aria-expanded="false">☰</button>
   </div>
 </nav>
+<script>
+(function(){
+  var b = document.getElementById('navBurger'), t = document.querySelector('.nav-tabs');
+  if(!b || !t) return;
+  function close(){ t.classList.remove('open'); b.textContent = '☰'; b.setAttribute('aria-expanded','false'); }
+  b.addEventListener('click', function(e){
+    e.stopPropagation();
+    var open = t.classList.toggle('open');
+    b.textContent = open ? '✕' : '☰';
+    b.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  document.addEventListener('click', function(e){ if(!t.contains(e.target) && e.target !== b) close(); });
+  window.addEventListener('resize', close);
+})();
+</script>
 <script>
 (function(){
   var btn = document.getElementById('themeToggle');
@@ -1455,6 +1522,66 @@ function gcUpdatePreview(amt) {
 }
 </script>
 
+<?php elseif ($page === 'care'): ?>
+<?php
+$careStatic = [
+  ['Foam Cleaner (100ml)',                  160, '🫧'],
+  ['Deodoriser (100ml)',                    150, '🌿'],
+  ['Protector Spray',                       150, '🛡️'],
+  ['Suede & Nubuck Revitalizing Spray',     150, '✨'],
+  ['Footwear Cleaner',                      150, '🧴'],
+  ['All Purpose Sneaker Wipes (12 Pack)',   100, '🧻'],
+  ['Cleaning Kit',                          280, '🧰'],
+  ['Sneaker Wipes (5 Pack)',                 50, '🧻'],
+  ['Shoe Tree',                             180, '🌳'],
+  ['Crease Protector (White)',              150, '⚪'],
+  ['Crease Protector (Black)',              150, '⚫'],
+];
+
+// Prefer products managed in Admin > Care Products; fall back to the built-in list
+$careItems = []; $hasCareTbl = false;
+try {
+    $hasCareTbl = $pdo->query("SELECT 1 FROM sys.objects WHERE object_id=OBJECT_ID(N'dbo.care_products') AND type='U'")->fetchColumn();
+    if ($hasCareTbl) {
+        $careItems = $pdo->query("SELECT id, name, description, price, icon, image_path FROM dbo.care_products WHERE is_active=1 ORDER BY sort_order, id")->fetchAll();
+    }
+} catch (\Throwable $e) { $careItems = []; }
+$careIconFallback = [];
+foreach ($careStatic as $cs) { $careIconFallback[$cs[0]] = $cs[2]; }
+if (!$hasCareTbl) {
+    foreach ($careStatic as $cs) {
+        $careItems[] = ['name'=>$cs[0], 'description'=>'', 'price'=>$cs[1], 'icon'=>$cs[2], 'image_path'=>''];
+    }
+}
+?>
+<div class="sec-label">Aftercare</div>
+<div class="sec-title">Care Products</div>
+<div class="sec-sub">Keep your kicks looking fresh with our trusted range of sneaker and shoe care products. From powerful foam cleaners to wipes and protectors, each product is designed to clean, protect, and extend the life of your shoes. Safe for all materials, and proudly made by The Sneaker Shack.</div>
+<div class="care-grid">
+  <?php foreach ($careItems as $cp): ?>
+  <div class="care-card">
+    <?php if (!empty($cp['image_path'])): ?>
+    <img class="care-img" src="<?= e($cp['image_path']) ?>" alt="<?= e($cp['name']) ?>" loading="lazy">
+    <?php else: ?>
+    <div class="care-icon"><?= e($cp['icon'] ?: ($careIconFallback[$cp['name']] ?? '🧴')) ?></div>
+    <?php endif; ?>
+    <div class="care-name"><?= e($cp['name']) ?></div>
+    <?php if (!empty($cp['description'])): ?><div class="care-desc"><?= e($cp['description']) ?></div><?php endif; ?>
+    <div class="care-price">R <?= number_format((float)$cp['price'], 2) ?></div>
+    <?php if (!empty($cp['id'])): ?>
+    <button type="button" class="care-add-btn" onclick="addToCart(this,<?= (int)$cp['id'] ?>)">Add to cart</button>
+    <?php endif; ?>
+  </div>
+  <?php endforeach; ?>
+  <?php if (!$careItems): ?><p style="color:var(--muted);font-size:13px">No products available right now.</p><?php endif; ?>
+  <?php if (!$hasCareTbl): ?><p style="grid-column:1/-1;color:var(--muted);font-size:12px">Online ordering isn't switched on yet — run <code>solemate_care_products_migration.sql</code> to enable “Add to cart”.</p><?php endif; ?>
+</div>
+
+<?php elseif ($page === 'cart'): ?>
+<div class="sec-label">Your basket</div>
+<div class="sec-title">Cart</div>
+<div class="cart-wrap" id="cartWrap"><div class="cart-empty">Loading your basket…</div></div>
+
 <?php elseif ($page === 'about'): ?>
 <div class="sec-label">Our story</div>
 <div class="sec-title">Born in Durban, built on craft</div>
@@ -1861,15 +1988,17 @@ function gcUpdatePreview(amt) {
 
   /* Animation loop */
   var animId;
-  function draw(ts) {
+  function draw() {
+    var ts  = performance.now();
     var ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     sparks = sparks.filter(function (spark) {
-      var elapsed = ts - spark.startTime;
+      // clamp: after a blocking prompt()/alert() the clock can lag the click
+      var elapsed = Math.max(0, ts - spark.startTime);
       if (elapsed >= duration) return false;
 
-      var progress = elapsed / duration;
+      var progress = Math.min(1, elapsed / duration);
       var eased    = easeOut(progress);
       var distance = eased * sparkRadius * extraScale;
       var lineLen  = sparkSize * (1 - eased);
@@ -1912,6 +2041,66 @@ function gcUpdatePreview(amt) {
 
 
 <script>
+// ── Cart (care products) ─────────────────────────────
+function cartEsc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function cartMoney(n){ return 'R ' + Number(n).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function updateCartBadge(count){
+  var b = document.getElementById('cartBadge');
+  if(!b) return;
+  b.textContent = count;
+  b.style.display = count > 0 ? 'flex' : 'none';
+}
+async function cartCall(action, id, qty){
+  var fd = new FormData();
+  fd.append('action', action);
+  if (id)  fd.append('id', id);
+  if (qty !== undefined) fd.append('qty', qty);
+  var res = await fetch('solemate_cart.php', { method:'POST', body:fd, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'} });
+  var data;
+  try { data = await res.json(); }
+  catch(e) { throw new Error('Cart server error (HTTP ' + res.status + '). Check that solemate_cart.php and includes/solemate_care_orders.php are uploaded.'); }
+  if (data && data.ok) updateCartBadge(data.count);
+  return data;
+}
+async function addToCart(btn, id){
+  var orig = btn.textContent;
+  btn.disabled = true;
+  try {
+    var d = await cartCall('add', id, 1);
+    if (d.ok) { btn.textContent = '✓ Added'; btn.classList.add('added'); }
+    else { btn.textContent = orig; alert(d.message || 'Could not add to cart.'); }
+  } catch(e) { btn.textContent = orig; alert(e.message || 'Could not add to cart.'); }
+  setTimeout(function(){ btn.textContent = orig; btn.classList.remove('added'); btn.disabled = false; }, 1400);
+}
+function renderCart(d){
+  var wrap = document.getElementById('cartWrap');
+  if (!wrap) return;
+  if (!d.ok || !d.items.length) {
+    wrap.innerHTML = '<div class="cart-empty">Your cart is empty.<br><br><a href="solemate_homepage.php?page=care" class="btn-p" style="font-size:13px;padding:10px 22px">Browse care products →</a></div>';
+    return;
+  }
+  var h = '';
+  d.items.forEach(function(it){
+    var thumb = it.image
+      ? '<img class="cart-thumb" src="' + cartEsc(it.image) + '" alt="">'
+      : '<div class="cart-thumb">' + cartEsc(it.icon) + '</div>';
+    h += '<div class="cart-line">' + thumb +
+         '<div class="cart-info"><div class="cart-name">' + cartEsc(it.name) + '</div><div class="cart-unit">' + cartMoney(it.price) + ' each</div></div>' +
+         '<div class="cart-qty"><button type="button" onclick="cartAction(\'set\',' + it.id + ',' + (it.qty - 1) + ')">−</button><span>' + it.qty + '</span><button type="button" onclick="cartAction(\'set\',' + it.id + ',' + (it.qty + 1) + ')">+</button></div>' +
+         '<div class="cart-line-total">' + cartMoney(it.line) + '</div>' +
+         '<button type="button" class="cart-remove" title="Remove" onclick="cartAction(\'remove\',' + it.id + ')">✕</button></div>';
+  });
+  h += '<div class="cart-total-row"><span>Subtotal</span><strong>' + cartMoney(d.subtotal) + '</strong></div>' +
+       '<a href="solemate_care_checkout.php" class="btn-p" style="display:block;text-align:center;margin-top:0.9rem">Checkout →</a>' +
+       '<p class="cart-note">Collect in store for free, or choose courier delivery (R<?= number_format(CARE_DELIVERY_FEE, 0) ?>) at checkout.</p>' +
+       '<a href="solemate_homepage.php?page=care" style="font-size:13px;color:var(--muted)">← Continue shopping</a>';
+  wrap.innerHTML = h;
+}
+async function cartAction(action, id, qty){
+  try { var d = await cartCall(action, id, qty); renderCart(d); } catch(e) { console.error('Cart error', e); }
+}
+if (document.getElementById('cartWrap')) { cartCall('get').then(renderCart).catch(function(){ renderCart({ok:false}); }); }
+
 // ── Wishlist heart toggle ─────────────────────────────
 async function toggleWishlist(btn, serviceId) {
   const loggedIn = <?= isCustomerLoggedIn() ? 'true' : 'false' ?>;

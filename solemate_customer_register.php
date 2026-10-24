@@ -13,6 +13,7 @@ if (!empty($_SESSION['customer_logged_in'])) {
 require 'includes/solemate_database_connection.php';
 require_once 'includes/solemate_ecommerce.php';
 require 'includes/solemate_mailer.php';
+require_once 'includes/solemate_url.php';
 $settings = getSiteSettings($pdo);
 require 'includes/solemate_customer_mailer.php';
 require 'includes/solemate_customer_auth.php';
@@ -138,9 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // ── Welcome email ────────────────────────────────
             try {
-                $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-                $host     = $_SERVER['HTTP_HOST'] ?? 'localhost';
-                $dashUrl  = $protocol . '://' . $host . '/SoleMate/solemate_customer_dashboard.php';
+                $dashUrl  = appBaseUrl() . '/solemate_customer_dashboard.php';
                 sendWelcomeEmail([
                     'name'          => $old['first_name'],
                     'email'         => $old['email'],

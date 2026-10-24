@@ -21,7 +21,7 @@ $cust = $custStmt->fetch();
 if (!$cust) { logoutCustomer(); header('Location: solemate_customer_login.php'); exit; }
 
 $tab = $_GET['tab'] ?? 'overview';
-if (!in_array($tab, ['overview','bookings','designs','wishlist','profile','addresses'])) $tab = 'overview';
+if (!in_array($tab, ['overview','bookings','care','designs','wishlist','profile','addresses'])) $tab = 'overview';
 
 // ── Table guards ─────────────────────────────────────────
 $hasDesigns   = false;
@@ -178,6 +178,20 @@ if (in_array($tab,['overview','bookings'])) {
         if (in_array($bk['status']??'',$activeStatuses)) $stats['active']++;
         if (($bk['status']??'')==='Ready') $stats['ready']++;
     }
+}
+$careOrders = []; $careOrderItems = [];
+if ($tab === 'care') {
+    try {
+        $cos = $pdo->prepare("SELECT * FROM dbo.care_orders WHERE (customer_id=? OR email=?) AND payment_status=N'paid' ORDER BY created_at DESC");
+        $cos->execute([$custId, $cust['email']]);
+        $careOrders = $cos->fetchAll();
+        if ($careOrders) {
+            $ids = implode(',', array_map(fn($r) => (int)$r['id'], $careOrders));
+            foreach ($pdo->query("SELECT order_id, name, qty, line_total FROM dbo.care_order_items WHERE order_id IN ($ids) ORDER BY id")->fetchAll() as $ci) {
+                $careOrderItems[(int)$ci['order_id']][] = $ci;
+            }
+        }
+    } catch (\Throwable $e) { $careOrders = []; }
 }
 if (in_array($tab,['overview','addresses'])) {
     $as=$pdo->prepare("SELECT * FROM dbo.customer_addresses WHERE customer_id=? ORDER BY is_default DESC, created_at ASC");
@@ -388,7 +402,7 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
   <!-- Tabs -->
   <div class="tabs">
     <?php
-    $tabLabels=['overview'=>'Overview','bookings'=>'My Bookings','designs'=>'Saved Designs','wishlist'=>'Wishlist','profile'=>'Profile','addresses'=>'Addresses'];
+    $tabLabels=['overview'=>'Overview','bookings'=>'My Bookings','care'=>'Care Orders','designs'=>'Saved Designs','wishlist'=>'Wishlist','profile'=>'Profile','addresses'=>'Addresses'];
     foreach ($tabLabels as $k=>$l): ?>
     <a href="?tab=<?= $k ?>" class="tab<?= $tab===$k?' active':'' ?>"><?= $l ?>
       <?php if ($k==='bookings'&&$stats['ready']>0): ?><span class="tab-badge"><?= $stats['ready'] ?></span><?php endif; ?>
@@ -599,6 +613,29 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
 
 
   <!-- ════════════════ SAVED DESIGNS ═════════════════ -->
+  <?php elseif ($tab==='care'): ?>
+  <div class="sec-card" style="padding:1.25rem 1.5rem">
+    <div class="sec-title">Care product orders</div>
+    <?php if (empty($careOrders)): ?>
+    <div class="empty-state"><div style="font-size:2.5rem;margin-bottom:.75rem">🧴</div><div style="font-weight:500;margin-bottom:.5rem">No care product orders yet</div><a href="solemate_homepage.php?page=care">Browse care products →</a></div>
+    <?php else: foreach ($careOrders as $co): ?>
+    <div style="padding:1rem 0;border-top:1px solid rgba(var(--border-rgb,92,56,32),.1)">
+      <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+        <div><strong><?= e($co['order_ref']) ?></strong>
+          <span style="color:var(--muted);font-size:12px"> · <?= e(date('d M Y', strtotime($co['created_at']))) ?></span></div>
+        <div style="font-size:12px;font-weight:500;color:var(--accent)"><?= e($co['status']) ?></div>
+      </div>
+      <?php foreach ($careOrderItems[(int)$co['id']] ?? [] as $ci): ?>
+      <div style="font-size:13px;display:flex;justify-content:space-between;padding:3px 0"><span><?= e($ci['name']) ?> <span style="color:var(--muted)">× <?= (int)$ci['qty'] ?></span></span><span>R<?= number_format((float)$ci['line_total'], 2) ?></span></div>
+      <?php endforeach; ?>
+      <div style="font-size:12px;color:var(--muted);margin-top:.4rem">
+        <?= $co['delivery_method'] === 'delivery' ? '🚚 Delivery to ' . e($co['delivery_address'] ?? '') : '🏬 Collect in store' ?>
+        · Total <strong style="color:var(--accent)">R<?= number_format((float)$co['total'], 2) ?></strong>
+      </div>
+    </div>
+    <?php endforeach; endif; ?>
+  </div>
+
   <?php elseif ($tab==='designs'): ?>
   <?php if (!$hasDesigns): ?>
   <div class="err-box"><span>⚠️</span><span>Run <strong>solemate_customer_features_migration.sql</strong> to enable saved designs.</span></div>
@@ -646,6 +683,7 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
       <!-- Actions -->
       <div class="design-actions">
         <button class="btn-accent btn-sm" onclick="openDesignModal(<?= $did ?>,<?= htmlspecialchars(json_encode($d['design_name']), ENT_QUOTES) ?>,<?= htmlspecialchars(json_encode($hexes), ENT_QUOTES) ?>,<?= htmlspecialchars(json_encode($size), ENT_QUOTES) ?>,<?= htmlspecialchars(json_encode($d['customization']??'{}'), ENT_QUOTES) ?>)">Book this design</button>
+        <a class="btn-ghost btn-sm" style="text-decoration:none;display:inline-block" href="solemate_homepage.php?page=customizer&amp;edit_design=<?= $did ?>">✏️ Edit design</a>
         <button class="btn-ghost btn-sm" onclick="document.getElementById('rename-<?= $did ?>').classList.toggle('open')">Rename</button>
         <form method="POST" style="display:inline" onsubmit="return confirm('Delete this design?')">
           <input type="hidden" name="action" value="delete_design">
