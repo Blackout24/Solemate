@@ -3,6 +3,9 @@
 //  solemate_ecommerce.php  —  Coupon · Gift Card · Loyalty
 // ═══════════════════════════════════════════════════════
 
+// Care-product shop helpers (constants, completeCareOrder())
+require_once __DIR__ . '/solemate_care_orders.php';
+
 // ─────────────────────────────────────────────────────────
 //  SITE SETTINGS  (feature toggles)
 // ─────────────────────────────────────────────────────────
@@ -486,6 +489,9 @@ function completePaymentManually(PDO $pdo, string $cartRef, string $verifiedBy):
         SET payment_status = N'paid', status = ?, amount_paid = ?
         WHERE cart_ref = ?
     ")->execute([$bkStatus, $amountPaid, $cartRef]);
+
+    // Care-product order? Mark it paid + send the order emails (idempotent)
+    completeCareOrder($pdo, $cartRef);
 
     // Activate any gift card purchased in this payment
     $pdo->prepare("UPDATE dbo.gift_cards SET is_active = 1 WHERE cart_ref = ?")->execute([$cartRef]);

@@ -22,6 +22,7 @@ use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
 // ✅ Load PHPMailer directly — no Composer needed
+require_once __DIR__ . '/solemate_url.php';
 require __DIR__ . '/PHPMailer/src/Exception.php';
 require __DIR__ . '/PHPMailer/src/PHPMailer.php';
 require __DIR__ . '/PHPMailer/src/SMTP.php';
@@ -89,9 +90,7 @@ function sendBookingConfirmation($data) {
         $mail->addAddress($data['email'], $data['name']);
 
         // 🔗 Tracker URL
-        $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $trackerUrl = $protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
+        $trackerUrl = appBaseUrl() . '/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
 
         // 📧 Email Content — use the full HTML template
         $mail->isHTML(true);
@@ -457,10 +456,7 @@ function sendStatusUpdateEmail(array $data): bool {
 
         $mail->setFrom(getenv('MAIL_USERNAME'), getenv('MAIL_FROM_NAME') ?: 'SoleMate');
         $mail->addAddress($data['email'], $data['name']);
-
-        $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $trackerUrl = $data['tracker_url'] ?? ($protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']));
+        $trackerUrl = $data['tracker_url'] ?? (appBaseUrl() . '/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']));
 
         $mail->isHTML(true);
         $mail->CharSet = 'UTF-8';
@@ -656,9 +652,7 @@ function sendCustomShoeConfirmation(array $data): bool {
         $mail->setFrom(getenv('MAIL_USERNAME'), getenv('MAIL_FROM_NAME') ?: 'SoleMate');
         $mail->addAddress($data['email'], $data['name']);
 
-        $protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host       = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $trackerUrl = $protocol . '://' . $host . '/SoleMate/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
+        $trackerUrl = appBaseUrl() . '/solemate_homepage.php?page=tracker&oid=' . urlencode($data['order_ref']);
 
         $mail->isHTML(true);
         $mail->CharSet = 'UTF-8';

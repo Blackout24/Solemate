@@ -10,6 +10,7 @@
 //  that use it, for smtpConfigure() and loadEnv()).
 // ═══════════════════════════════════════════════════════
 
+require_once __DIR__ . '/solemate_url.php';
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
@@ -190,7 +191,7 @@ function _buildGiftCardHtml(array $d): string
         <!-- CTA -->
         <table cellpadding="0" cellspacing="0" width="100%"><tr><td align="center">
           <table cellpadding="0" cellspacing="0"><tr><td style="background:' . CM_ACCENT . ';border-radius:8px">
-            <a href="' . (getenv('APP_URL') ?: 'http://localhost/SoleMate') . '/solemate_homepage.php?page=booking" style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none">
+            <a href="' . appBaseUrl() . '/solemate_homepage.php?page=booking" style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none">
               Book a service now →
             </a>
           </td></tr></table>

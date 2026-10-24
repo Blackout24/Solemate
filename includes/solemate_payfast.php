@@ -44,9 +44,11 @@ function pfGenerateSignature(array $data, string $passPhrase = ''): string {
 }
 
 // ── Build payment data array ─────────────────────────────
+require_once __DIR__ . '/solemate_url.php';
+
 function pfBuildPaymentData(array $order): array {
     $cfg = pfConfig();
-    $base = getenv('APP_URL') ?: 'http://localhost/SoleMate';
+    $base = appBaseUrl();
 
     $data = [
         'merchant_id'       => $cfg['merchant_id'],
