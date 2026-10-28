@@ -206,9 +206,7 @@ dt{color:var(--muted);font-weight:500}dd{font-weight:500}
   <div class="loyalty-pill">⭐ You now have <strong><?= number_format($loyaltyBalance) ?> loyalty points</strong></div>
   <?php endif; ?>
   <div class="btn-row">
-    <?php if (isCustomerLoggedIn()): ?>
-    <a href="solemate_customer_dashboard.php?tab=care" class="btn-p">View my orders →</a>
-    <?php endif; ?>
+    <a href="solemate_homepage.php?page=tracker&amp;oid=<?= urlencode($careOrder['order_ref']) ?>" class="btn-p">Track this order →</a>
     <a href="solemate_homepage.php?page=care" class="btn-g">Keep shopping</a>
   </div>
 

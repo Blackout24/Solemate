@@ -623,7 +623,7 @@ nav{background:var(--dark);padding:0 1.75rem;display:flex;align-items:center;jus
       <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap">
         <div><strong><?= e($co['order_ref']) ?></strong>
           <span style="color:var(--muted);font-size:12px"> · <?= e(date('d M Y', strtotime($co['created_at']))) ?></span></div>
-        <div style="font-size:12px;font-weight:500;color:var(--accent)"><?= e($co['status']) ?></div>
+        <div style="font-size:12px;font-weight:500;color:var(--accent)"><?= e($co['status']) ?> · <a href="solemate_homepage.php?page=tracker&amp;oid=<?= urlencode($co['order_ref']) ?>" style="color:var(--accent)">Track →</a></div>
       </div>
       <?php foreach ($careOrderItems[(int)$co['id']] ?? [] as $ci): ?>
       <div style="font-size:13px;display:flex;justify-content:space-between;padding:3px 0"><span><?= e($ci['name']) ?> <span style="color:var(--muted)">× <?= (int)$ci['qty'] ?></span></span><span>R<?= number_format((float)$ci['line_total'], 2) ?></span></div>

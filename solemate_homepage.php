@@ -47,6 +47,8 @@ if ($page === 'booking' && isCustomerLoggedIn()) {
 
 $trackResult = null;
 $trackError  = null;
+$careTrack   = null;
+$careTrackItems = [];
 $newBooking  = isset($_GET['new']) && $_GET['new'] === '1';
 
 if ($page === 'tracker' && isset($_GET['oid'])) {
@@ -74,7 +76,22 @@ if ($page === 'tracker' && isset($_GET['oid'])) {
         $stmt->execute([$rawOid]);
         $trackResult = $stmt->fetch();
         if (!$trackResult) {
-            $trackError = "Order <strong>" . htmlspecialchars($rawOid) . "</strong> not found. Please check the number and try again.";
+            // Not a service booking — maybe a care-product order (CP-…)
+            try {
+                if (careTableExists($pdo, 'care_orders')) {
+                    $cst = $pdo->prepare("SELECT * FROM dbo.care_orders WHERE order_ref = ?");
+                    $cst->execute([$rawOid]);
+                    $careTrack = $cst->fetch() ?: null;
+                    if ($careTrack) {
+                        $cit = $pdo->prepare("SELECT name, qty, line_total FROM dbo.care_order_items WHERE order_id = ? ORDER BY id");
+                        $cit->execute([(int)$careTrack['id']]);
+                        $careTrackItems = $cit->fetchAll();
+                    }
+                }
+            } catch (\Throwable $e) { $careTrack = null; }
+            if (!$careTrack) {
+                $trackError = "Order <strong>" . htmlspecialchars($rawOid) . "</strong> not found. Please check the number and try again.";
+            }
         }
     } else {
         $trackError = "Please enter an order number.";
@@ -959,7 +976,7 @@ toggleAddressField();
   <form method="GET" action="solemate_homepage.php">
     <input type="hidden" name="page" value="tracker">
     <div class="track-row">
-      <input class="track-inp" name="oid" placeholder="e.g. SM-20240421" value="<?= e($_GET['oid'] ?? '') ?>">
+      <input class="track-inp" name="oid" placeholder="e.g. SM-20240421 or CP-20261021-AB12" value="<?= e($_GET['oid'] ?? '') ?>">
       <button type="submit" class="track-btn">Track order</button>
     </div>
   </form>
@@ -1015,6 +1032,48 @@ toggleAddressField();
       Drop-off: <strong><?= $o['drop_date'] ? date('d M Y', strtotime($o['drop_date'])) : 'TBC' ?></strong><br>
       Collection: <?= $collectionLabel ?><br>
       Status: <strong style="color:var(--accent)"><?= e($o['status'] ?? 'Unknown') ?></strong>
+    </div>
+  <?php endif; ?>
+  <?php if ($careTrack):
+    $isDeliv   = $careTrack['delivery_method'] === 'delivery';
+    $cStatus   = $careTrack['status'];
+    $cPaid     = $careTrack['payment_status'] === 'paid';
+    $cCancel   = ($cStatus === 'Cancelled');
+    $cSteps    = ['Pending', 'Processing', $isDeliv ? 'Out for delivery' : 'Ready for collection', 'Completed'];
+    $cIdx      = array_search($cStatus, $cSteps, true);
+    $cStep     = ($cIdx === false) ? 1 : $cIdx + 1;
+    $cTotal    = count($cSteps);
+    $cPct      = round(($cStep - 1) / ($cTotal - 1) * 100);
+    $cFirst    = explode(' ', trim($careTrack['customer_name']))[0];
+  ?>
+    <hr class="divider">
+    <?php if ($cCancel): ?>
+      <div class="not-found" style="margin-top:0">This order was cancelled.</div>
+    <?php else: ?>
+    <div class="steps-wrap">
+      <div class="steps-track"></div>
+      <div class="steps-fill" style="width:<?= $cPct ?>%"></div>
+      <?php for ($i = 1; $i <= $cTotal; $i++):
+        $cls = $i < $cStep ? 'done' : ($i === $cStep ? 'active' : '');
+        $dot = $i < $cStep ? '✓' : $i;
+      ?>
+      <div class="step <?= $cls ?>">
+        <div class="step-dot"><?= $dot ?></div>
+        <div class="step-lbl"><?= e($cSteps[$i - 1]) ?></div>
+      </div>
+      <?php endfor; ?>
+    </div>
+    <?php endif; ?>
+    <div class="order-box">
+      <strong>Order <?= e($careTrack['order_ref']) ?></strong> &nbsp;·&nbsp; Care products<br>
+      Customer: <?= e($cFirst) ?> &nbsp;|&nbsp; Placed: <?= date('d M Y', strtotime($careTrack['created_at'])) ?><br>
+      <?php foreach ($careTrackItems as $ci): ?>
+      <?= e($ci['name']) ?> × <?= (int)$ci['qty'] ?><br>
+      <?php endforeach; ?>
+      <?= $isDeliv ? 'Courier delivery' : 'Collect in store (123 Florida Road, Morningside)' ?> &nbsp;|&nbsp;
+      Total: <strong>R<?= number_format((float)$careTrack['total'], 2) ?></strong><br>
+      Payment: <strong style="color:<?= $cPaid ? 'var(--success)' : 'var(--muted)' ?>"><?= $cPaid ? 'Paid' : ($cCancel ? 'Cancelled' : 'Awaiting payment') ?></strong><br>
+      Status: <strong style="color:var(--accent)"><?= e($cStatus) ?></strong>
     </div>
   <?php endif; ?>
 </div>
