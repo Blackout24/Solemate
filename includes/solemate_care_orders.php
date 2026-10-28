@@ -7,6 +7,8 @@
 //  completePaymentManually().
 // ═══════════════════════════════════════════════════════
 
+require_once __DIR__ . '/solemate_url.php';
+
 const CARE_DELIVERY_FEE = 80.00;          // flat courier fee (R)
 const CARE_MAX_QTY      = 20;             // per product
 const CARE_ORDER_STATUSES = ['Pending','Processing','Ready for collection','Out for delivery','Completed','Cancelled'];
@@ -123,6 +125,7 @@ function sendCareOrderEmails(array $order, array $items): void
     $fee   = (float)$order['delivery_fee'];
     $total = (float)$order['total'];
 
+    $trackUrl = appBaseUrl() . '/solemate_homepage.php?page=tracker&oid=' . urlencode($order['order_ref']);
     $where = $isDeliv
         ? '<strong>Courier delivery to:</strong><br>' . nl2br(careEsc($order['delivery_address']))
         : '<strong>Collect in store:</strong><br>123 Florida Road, Morningside, Durban · Mon–Fri 8am–6pm · Sat 9am–2pm';
@@ -143,6 +146,7 @@ function sendCareOrderEmails(array $order, array $items): void
       . '<tr><td style="padding:10px 0;font-size:16px;font-weight:bold;color:#1A0F08">Total paid</td><td style="padding:10px 0;font-size:18px;font-weight:bold;text-align:right;color:#D4561A">R' . number_format($total, 2) . '</td></tr>'
       . '</table>'
       . '<div style="margin-top:18px;padding:14px 16px;background:#FAF7F2;border-left:3px solid #D4561A;border-radius:6px;font-size:13px;color:#1A0F08;line-height:1.6">' . $where . '</div>'
+      . '<p style="margin:18px 0 0"><a href="' . careEsc($trackUrl) . '" style="display:inline-block;background:#D4561A;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:14px">Track your order →</a></p>'
       . '<p style="margin:20px 0 0;font-size:12px;color:#8B7355">Questions? Call 031 555 0123 and quote your order number.</p>'
       . '</div></div></div>';
 
@@ -150,7 +154,7 @@ function sendCareOrderEmails(array $order, array $items): void
          . "Order {$order['order_ref']} - payment received.\n\n" . $text
          . "\nSubtotal: R" . number_format((float)$order['subtotal'], 2)
          . "\n" . ($isDeliv ? 'Courier delivery' : 'Collection') . ': ' . ($fee > 0 ? 'R' . number_format($fee, 2) : 'Free')
-         . "\nTotal paid: R" . number_format($total, 2) . "\n\n" . $whereText . "\n";
+         . "\nTotal paid: R" . number_format($total, 2) . "\n\n" . $whereText . "\n\nTrack your order: " . $trackUrl . "\n";
 
     $mail = new PHPMailer\PHPMailer\PHPMailer(true);
     try {
