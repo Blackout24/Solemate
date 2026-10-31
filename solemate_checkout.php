@@ -91,6 +91,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'coupon') {
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'giftcard') {
     header('Content-Type: application/json');
     if (!$settings['gift_cards']) { echo json_encode(['ok'=>false,'message'=>'Gift cards are currently unavailable.']); exit; }
+    if ((float)($cart['loyalty_discount'] ?? 0) > 0) {
+        echo json_encode(['ok'=>false,'message'=>'Loyalty points are already applied. Remove them first — you can use points or a gift card, not both (a coupon works with either).']); exit;
+    }
     $code   = strtoupper(trim($_POST['code'] ?? ''));
     $result = validateGiftCard($pdo, $code);
     if ($result['ok']) {
@@ -114,6 +117,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'loyalty') {
     header('Content-Type: application/json');
     if (!$settings['loyalty']) { echo json_encode(['ok'=>false,'message'=>'Loyalty points are currently unavailable.']); exit; }
     if (!isCustomerLoggedIn()) { echo json_encode(['ok'=>false,'message'=>'Sign in to use loyalty points.']); exit; }
+    if ((float)($cart['gift_card_discount'] ?? 0) > 0) {
+        echo json_encode(['ok'=>false,'message'=>'A gift card is already applied. Remove it first — you can use points or a gift card, not both (a coupon works with either).']); exit;
+    }
     $custRow = $pdo->prepare("SELECT loyalty_points FROM dbo.customers WHERE id=?");
     $custRow->execute([getCustomerId()]); $custRow=$custRow->fetch();
     $available = (int)($custRow['loyalty_points'] ?? 0);
@@ -233,6 +239,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
     <!-- Discount panel -->
     <div class="card">
       <div style="font-family:'Playfair Display',serif;font-size:1rem;font-weight:700;margin-bottom:1rem">Discounts &amp; rewards</div>
+      <div style="font-size:12px;color:var(--muted);margin:-.5rem 0 1rem;line-height:1.5">💡 Use a coupon code <strong>plus</strong> either loyalty points <em>or</em> a gift card.</div>
 
       <!-- Coupon -->
       <?php if ($settings['coupons']): ?>
@@ -262,6 +269,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
             <span>🎁 <?= e($cart['gift_card_code']) ?> — R<?= number_format($cart['gift_card_discount'],2) ?> off</span>
             <a href="?remove=giftcard" class="remove-link">Remove</a>
           </div>
+        <?php elseif ((float)$cart['loyalty_discount'] > 0): ?>
+          <div style="font-size:12px;color:var(--muted)">Loyalty points are applied. Remove them to use a gift card instead.</div>
         <?php else: ?>
           <div class="input-row">
             <input type="text" id="giftInput" placeholder="GC-XXXX-XXXX" maxlength="20">
@@ -281,6 +290,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
             <span>⭐ <?= number_format($cart['loyalty_points']) ?> pts — R<?= number_format($cart['loyalty_discount'],2) ?> off</span>
             <a href="?remove=loyalty" class="remove-link">Remove</a>
           </div>
+        <?php elseif ((float)$cart['gift_card_discount'] > 0): ?>
+          <div style="font-size:12px;color:var(--muted)">A gift card is applied. Remove it to redeem loyalty points instead.</div>
         <?php else: ?>
           <div class="loyalty-wrap">
             <div class="loyalty-info">
