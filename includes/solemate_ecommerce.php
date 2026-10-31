@@ -190,12 +190,19 @@ function adjustLoyaltyPoints(PDO $pdo, int $customerId, int $delta, string $reas
 
 function cartGet(): array {
     if (session_status()===PHP_SESSION_NONE) session_start();
-    return $_SESSION['sm_cart'] ?? [
+    $cart = $_SESSION['sm_cart'] ?? [
         'item'           => null,
         'coupon_code'    => null,  'coupon_discount'    => 0,
         'gift_card_code' => null,  'gift_card_discount' => 0,
         'loyalty_points' => 0,     'loyalty_discount'   => 0,
     ];
+    // RULE: loyalty points OR a gift card — never both. A coupon can go with either.
+    // (Checked here too, so no page can ever pay with both even if the session got both.)
+    if ((float)($cart['gift_card_discount'] ?? 0) > 0 && (float)($cart['loyalty_discount'] ?? 0) > 0) {
+        $cart['loyalty_points']   = 0;
+        $cart['loyalty_discount'] = 0;
+    }
+    return $cart;
 }
 
 function cartSet(array $cart): void {
