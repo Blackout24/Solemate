@@ -526,6 +526,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.booking
 
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.booking') AND name='cancel_reason')
     ALTER TABLE dbo.booking ADD cancel_reason NVARCHAR(500) NULL;
+	ALTER TABLE dbo.booking ADD delivery_address NVARCHAR(300) NULL;
 GO
 
 -- ── dbo.refund_requests: one row per refund request ─────
@@ -571,6 +572,112 @@ BEGIN
         ('coupons',    '1'),
         ('loyalty',    '1'),
         ('referrals',  '1');
+END
+GO
+
+-- ═══════════════════════════════════════════════════════
+--  solemate_customer_payments_migration.sql
+--  Adds:
+--   - dbo.customers.is_active   (view/update/deactivate accounts)
+--   - dbo.payments verification columns (manual EFT / other
+--     transaction verification by an admin)
+--  Run once in SSMS against shoe_repair_db.
+-- ═══════════════════════════════════════════════════════
+USE shoe_repair_db;
+GO
+
+-- ── dbo.customers: account status ────────────────────────
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.customers') AND name='is_active')
+    ALTER TABLE dbo.customers ADD is_active BIT NOT NULL CONSTRAINT DF_customers_active DEFAULT 1;
+GO
+
+-- ── dbo.payments: manual verification (EFT / other) ──────
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.payments') AND name='verified_by')
+    ALTER TABLE dbo.payments ADD verified_by NVARCHAR(100) NULL;
+
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.payments') AND name='verified_at')
+    ALTER TABLE dbo.payments ADD verified_at DATETIME2 NULL;
+
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.payments') AND name='admin_notes')
+    ALTER TABLE dbo.payments ADD admin_notes NVARCHAR(500) NULL;
+GO
+
+-- ═══════════════════════════════════════════════════════
+--  SoleMate — Care shop migration (products + orders)  ·  T-SQL
+--  Run the WHOLE file in SSMS. Safe to re-run.
+--  The USE line below makes sure the tables land in shoe_repair_db
+--  (not master) no matter which database SSMS has selected.
+-- ═══════════════════════════════════════════════════════
+USE shoe_repair_db;
+GO
+
+-- ── care_products ────────────────────────────────────────
+IF OBJECT_ID(N'dbo.care_products', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.care_products (
+        id           INT IDENTITY(1,1) PRIMARY KEY,
+        name         NVARCHAR(150) NOT NULL,
+        description  NVARCHAR(500) NULL,
+        price        DECIMAL(10,2) NOT NULL,
+        icon         NVARCHAR(16)  NULL,
+        image_path   NVARCHAR(300) NULL,
+        sort_order   INT NOT NULL DEFAULT 0,
+        is_active    BIT NOT NULL DEFAULT 1,
+        created_at   DATETIME NOT NULL DEFAULT GETDATE()
+    );
+
+    INSERT INTO dbo.care_products (name, price, sort_order) VALUES
+    (N'Foam Cleaner (100ml)', 160, 10),
+    (N'Deodoriser (100ml)', 150, 20),
+    (N'Protector Spray', 150, 30),
+    (N'Suede & Nubuck Revitalizing Spray', 150, 40),
+    (N'Footwear Cleaner', 150, 50),
+    (N'All Purpose Sneaker Wipes (12 Pack)', 100, 60),
+    (N'Cleaning Kit', 280, 70),
+    (N'Sneaker Wipes (5 Pack)', 50, 80),
+    (N'Shoe Tree', 180, 90),
+    (N'Crease Protector (White)', 150, 100),
+    (N'Crease Protector (Black)', 150, 110);
+END
+GO
+
+-- SoleMate: care product orders (checkout for the Care Products shop)
+-- Run after solemate_care_products_migration.sql
+
+IF OBJECT_ID(N'dbo.care_orders', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.care_orders (
+        id               INT IDENTITY(1,1) PRIMARY KEY,
+        order_ref        NVARCHAR(30)  NOT NULL UNIQUE,
+        cart_ref         NVARCHAR(40)  NOT NULL UNIQUE,   -- links to dbo.payments.cart_ref
+        customer_id      INT           NULL,
+        customer_name    NVARCHAR(150) NOT NULL,
+        email            NVARCHAR(150) NOT NULL,
+        phone            NVARCHAR(30)  NULL,
+        delivery_method  NVARCHAR(10)  NOT NULL DEFAULT N'collect',   -- collect | delivery
+        delivery_address NVARCHAR(300) NULL,
+        subtotal         DECIMAL(10,2) NOT NULL,
+        delivery_fee     DECIMAL(10,2) NOT NULL DEFAULT 0,
+        total            DECIMAL(10,2) NOT NULL,
+        status           NVARCHAR(30)  NOT NULL DEFAULT N'Pending',
+        payment_status   NVARCHAR(20)  NOT NULL DEFAULT N'pending',
+        created_at       DATETIME      NOT NULL DEFAULT GETDATE(),
+        paid_at          DATETIME      NULL
+    );
+END
+GO
+
+IF OBJECT_ID(N'dbo.care_order_items', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.care_order_items (
+        id          INT IDENTITY(1,1) PRIMARY KEY,
+        order_id    INT           NOT NULL REFERENCES dbo.care_orders(id) ON DELETE CASCADE,
+        product_id  INT           NULL,
+        name        NVARCHAR(150) NOT NULL,
+        unit_price  DECIMAL(10,2) NOT NULL,
+        qty         INT           NOT NULL,
+        line_total  DECIMAL(10,2) NOT NULL
+    );
 END
 GO
 
@@ -1022,3 +1129,11 @@ BEGIN
         ADD customization_data NVARCHAR(MAX) NULL;
 END;
 GO
+
+USE master;
+ALTER LOGIN [NT AUTHORITY\SYSTEM] ENABLE;
+GRANT CONNECT SQL TO [NT AUTHORITY\SYSTEM];
+
+USE shoe_repair_db;
+ALTER ROLE db_owner ADD MEMBER [NT AUTHORITY\SYSTEM];
+
